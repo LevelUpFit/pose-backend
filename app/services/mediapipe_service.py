@@ -84,12 +84,17 @@ def analyze_and_render_video(video_bytes: bytes) -> str:
                 right_leg_angle = calculate_angle(right_shoulder, right_hip, right_knee)
                 right_knee_angle = calculate_angle(right_hip, right_knee, right_ankle)
 
+                color = 0
+                if right_leg_angle > 90:
+                    color = (0,0,255)
+                else:
+                    color = (0,255,0)
                 cv2.putText(
                     frame,
                     f"R-Angle: {int(right_leg_angle)} deg",
                     (int(right_hip[0]), int(right_hip[1]) - 20),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.9, (0, 255, 255), 2
+                    cv2.FONT_HERSHEY_SIMPLEX,                    
+                    0.9, color, 2
                 )
 
                 cv2.putText(
@@ -97,7 +102,7 @@ def analyze_and_render_video(video_bytes: bytes) -> str:
                     f"R-Angle: {int(right_knee_angle)} deg",
                     (int(right_knee[0]), int(right_knee[1]) - 20),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.9, (0, 255, 255), 2
+                    0.9, color, 2
                 )
 
                 # 랜드마크 표시
