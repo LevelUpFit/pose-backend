@@ -115,4 +115,3 @@ def analyze_and_render_video(video_bytes: bytes) -> str:
 
     print("Saved video to:", output_path)
     return output_path
-
