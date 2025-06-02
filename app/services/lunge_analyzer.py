@@ -5,6 +5,7 @@ import mediapipe as mp
 import os
 
 from app.utils.angle_utils import calculate_angle
+from app.services.person import Person
 
 
 mp_pose = mp.solutions.pose
@@ -81,6 +82,9 @@ def check_pose(landmarks, width, height):
 
 
 def lunge_video(video_bytes: bytes) -> str:
+    person = Person()
+    bending_total = 0
+    bending_correct = 0
     # 입력 파일 저장
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as input_tmp:
         input_tmp.write(video_bytes)
@@ -107,7 +111,7 @@ def lunge_video(video_bytes: bytes) -> str:
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
-    with mp_pose.Pose(static_image_mode=False) as pose: #false가 훨 나음
+    with mp_pose.Pose(static_image_mode=False) as pose:
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
@@ -119,26 +123,60 @@ def lunge_video(video_bytes: bytes) -> str:
 
             if result1.pose_landmarks:
                 landmarks = result1.pose_landmarks.landmark
-                
-                #if check_pose(landmarks, width, height):
                 result = analyze_lunge(landmarks, width, height)
 
-
-                # 앞/뒤 무릎 좌표
                 front_knee = (landmarks[25] if result["front"] == "left" else landmarks[26])
                 rear_knee = (landmarks[25] if result["rear"] == "left" else landmarks[26])
 
                 front_coord = (int(front_knee.x * width), int(front_knee.y * height))
                 rear_coord = (int(rear_knee.x * width), int(rear_knee.y * height))
-                    
+
                 if result["is_lunge_pose"]:
-                    # 색상 결정
                     front_color = (0, 255, 0) if result["front_correct"] else (0, 0, 255)
                     rear_color = (0, 255, 0) if result["rear_correct"] else (0, 0, 255)
                 else:
                     front_color = (255, 255, 255)
                     rear_color = (255, 255, 255)
-                
+
+                lm_dict = {i: l for i, l in enumerate(landmarks)}
+                person.update_from_landmarks(lm_dict)
+
+                # 정확도 계산: bending일 때만 체크
+                # 왼쪽/오른쪽 다리 모두 bending 체크
+                for leg, angle in [
+                    (person.left_leg, result["front_angle"] if result["front"] == "left" else result["rear_angle"]),
+                    (person.right_leg, result["front_angle"] if result["front"] == "right" else result["rear_angle"])
+                ]:
+                    if leg.movement == "Bending":
+                        bending_total += 1
+                        if angle >= 90:
+                            bending_correct += 1
+
+                # 정확도 계산 및 출력
+                accuracy = (bending_correct / bending_total * 100) if bending_total > 0 else 100.0
+                cv2.putText(
+                    frame,
+                    f"Accuracy: {accuracy:.1f}%",
+                    (width - 250, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    1.0, (255, 0, 0), 3
+                )
+
+                # 좌측 상단에 movement 표시
+                cv2.putText(
+                    frame,
+                    f"Left Leg: {person.left_leg.movement}",
+                    (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.8, (0, 0, 0), 2
+                )
+                cv2.putText(
+                    frame,
+                    f"Right Leg: {person.right_leg.movement}",
+                    (10, 60),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.8, (0, 0, 0), 2
+                )
                 
 
                 # 텍스트 출력

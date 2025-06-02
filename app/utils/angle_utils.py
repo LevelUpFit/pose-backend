@@ -18,6 +18,22 @@ def calculate_angle(a, b, c):
     angle = np.arccos(np.clip(cosine_angle, -1.0, 1.0))
     return np.degrees(angle)
 
+# 각도 계산 함수 (3D 좌표용)
+def calculate_angle_person(a, b, c):
+    # 각 landmark에서 x, y, z 좌표만 뽑아서 NumPy 벡터로 변환
+    a = np.array([a.x, a.y, a.z])
+    b = np.array([b.x, b.y, b.z])
+    c = np.array([c.x, c.y, c.z])
+
+    ba = a - b
+    bc = c - b
+
+    cosine_angle = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc))
+    angle = np.degrees(np.arccos(cosine_angle))
+
+    return angle
+
+
 #잘못 구현한 로직
 def calculate_slope_angle(a, b):
     """

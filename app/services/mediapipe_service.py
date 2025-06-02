@@ -5,7 +5,7 @@ import mediapipe as mp
 import os
 
 from app.utils.angle_utils import calculate_angle
-
+from app.utils.landmark_utils import to_named_landmarks
 
 mp_pose = mp.solutions.pose
 mp_drawing = mp.solutions.drawing_utils
@@ -49,12 +49,13 @@ def analyze_and_render_video(video_bytes: bytes) -> str:
 
             if result.pose_landmarks:
                 landmarks = result.pose_landmarks.landmark
+                named = to_named_landmarks(landmarks)
 
                 #왼쪽 다리 각도
-                left_shoulder = (landmarks[11].x * width, landmarks[11].y * height)
-                left_hip = (landmarks[23].x * width, landmarks[23].y * height)
-                left_knee = (landmarks[25].x * width, landmarks[25].y * height)
-                left_ankle = (landmarks[27].x * width, landmarks[27].y * height)
+                left_shoulder = (named["left_shoulder"].x * width, named["left_shoulder"].y * height)
+                left_hip = (named["left_hip"].x * width, named["left_hip"].y * height)
+                left_knee = (named["left_knee"].x * width, named["left_knee"].y * height)
+                left_ankle = (named["left_ankle"].x * width, named["left_ankle"].y * height)
 
                 left_leg_angle = calculate_angle(left_shoulder, left_hip, left_knee)
                 left_knee_angle = calculate_angle(left_hip, left_knee, left_ankle)
