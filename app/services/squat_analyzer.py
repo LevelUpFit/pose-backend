@@ -45,21 +45,23 @@ def squat_video(video_bytes: bytes) -> str:
 
     cap = cv2.VideoCapture(input_path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 30
-    width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 640
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 480
 
-    if fps <= 0:
-        fps = 30
+    # 첫 프레임에서 width, height 결정
+    ret, frame = cap.read()
+    if not ret:
+        cap.release()
+        raise Exception("영상 읽기 실패")
+    height, width = frame.shape[:2]
 
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if not fps or fps <= 0:
+        fps = 30
+
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
     with mp_pose.Pose(static_image_mode=False) as pose:
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-
+        while ret:
             image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             result1 = pose.process(image_rgb)
 
@@ -125,6 +127,7 @@ def squat_video(video_bytes: bytes) -> str:
                 mp_drawing.draw_landmarks(frame, result1.pose_landmarks, mp_pose.POSE_CONNECTIONS)
 
             out.write(frame)
+            ret, frame = cap.read()
 
     cap.release()
     out.release()

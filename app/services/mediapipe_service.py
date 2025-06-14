@@ -26,8 +26,8 @@ def analyze_and_render_video(video_bytes: bytes) -> str:
     # ⭐ 디버깅용 출력
     print("Video Opened:", cap.isOpened())
     fps = cap.get(cv2.CAP_PROP_FPS) or 30
-    width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 640
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 480
+    width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     print("Video Info:", fps, width, height)
 
     # 기본값 보정
@@ -37,79 +37,155 @@ def analyze_and_render_video(video_bytes: bytes) -> str:
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
+    ret, frame = cap.read()
+    if not ret:
+        raise Exception("영상 읽기 실패")
+    height, width = frame.shape[:2]
+
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+
+    # 첫 프레임 처리
     with mp_pose.Pose(static_image_mode=False) as pose: #false가 훨 나음
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                print("No more frames or failed to read.")
-                break
+        image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        result = pose.process(image_rgb)
 
-            image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            result = pose.process(image_rgb)
+        if result.pose_landmarks:
+            landmarks = result.pose_landmarks.landmark
+            named = to_named_landmarks(landmarks)
 
-            if result.pose_landmarks:
-                landmarks = result.pose_landmarks.landmark
-                named = to_named_landmarks(landmarks)
+            #왼쪽 다리 각도
+            left_shoulder = (named["left_shoulder"].x * width, named["left_shoulder"].y * height)
+            left_hip = (named["left_hip"].x * width, named["left_hip"].y * height)
+            left_knee = (named["left_knee"].x * width, named["left_knee"].y * height)
+            left_ankle = (named["left_ankle"].x * width, named["left_ankle"].y * height)
 
-                #왼쪽 다리 각도
-                left_shoulder = (named["left_shoulder"].x * width, named["left_shoulder"].y * height)
-                left_hip = (named["left_hip"].x * width, named["left_hip"].y * height)
-                left_knee = (named["left_knee"].x * width, named["left_knee"].y * height)
-                left_ankle = (named["left_ankle"].x * width, named["left_ankle"].y * height)
+            left_leg_angle = calculate_angle(left_shoulder, left_hip, left_knee)
+            left_knee_angle = calculate_angle(left_hip, left_knee, left_ankle)
 
-                left_leg_angle = calculate_angle(left_shoulder, left_hip, left_knee)
-                left_knee_angle = calculate_angle(left_hip, left_knee, left_ankle)
+            cv2.putText(
+                frame,
+                f"L-Angle: {int(left_leg_angle)} deg",
+                (int(left_hip[0]), int(left_hip[1]) - 20),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.9, (0, 255, 0), 2
+            )
 
-                cv2.putText(
-                    frame,
-                    f"L-Angle: {int(left_leg_angle)} deg",
-                    (int(left_hip[0]), int(left_hip[1]) - 20),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.9, (0, 255, 0), 2
-                )
+            cv2.putText(
+                frame,
+                f"R-Angle: {int(left_knee_angle)} deg",
+                (int(left_knee[0]), int(left_knee[1]) - 20),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.9, (0, 255, 255), 2
+            )
 
-                cv2.putText(
-                    frame,
-                    f"R-Angle: {int(left_knee_angle)} deg",
-                    (int(left_knee[0]), int(left_knee[1]) - 20),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.9, (0, 255, 255), 2
-                )
+            #오른쪽 다리 각도
+            right_shoulder = (landmarks[12].x * width, landmarks[12].y * height)
+            right_hip = (landmarks[24].x * width, landmarks[24].y * height)
+            right_knee = (landmarks[26].x * width, landmarks[26].y * height)
+            right_ankle = (landmarks[28].x * width, landmarks[28].y * height)
 
-                #오른쪽 다리 각도
-                right_shoulder = (landmarks[12].x * width, landmarks[12].y * height)
-                right_hip = (landmarks[24].x * width, landmarks[24].y * height)
-                right_knee = (landmarks[26].x * width, landmarks[26].y * height)
-                right_ankle = (landmarks[28].x * width, landmarks[28].y * height)
+            right_leg_angle = calculate_angle(right_shoulder, right_hip, right_knee)
+            right_knee_angle = calculate_angle(right_hip, right_knee, right_ankle)
 
-                right_leg_angle = calculate_angle(right_shoulder, right_hip, right_knee)
-                right_knee_angle = calculate_angle(right_hip, right_knee, right_ankle)
+            color = 0
+            if right_leg_angle > 90:
+                color = (0,0,255)
+            else:
+                color = (0,255,0)
+            cv2.putText(
+                frame,
+                f"R-Angle: {int(right_leg_angle)} deg",
+                (int(right_hip[0]), int(right_hip[1]) - 20),
+                cv2.FONT_HERSHEY_SIMPLEX,                    
+                0.9, color, 2
+            )
 
-                color = 0
-                if right_leg_angle > 90:
-                    color = (0,0,255)
-                else:
-                    color = (0,255,0)
-                cv2.putText(
-                    frame,
-                    f"R-Angle: {int(right_leg_angle)} deg",
-                    (int(right_hip[0]), int(right_hip[1]) - 20),
-                    cv2.FONT_HERSHEY_SIMPLEX,                    
-                    0.9, color, 2
-                )
+            cv2.putText(
+                frame,
+                f"R-Angle: {int(right_knee_angle)} deg",
+                (int(right_knee[0]), int(right_knee[1]) - 20),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.9, color, 2
+            )
 
-                cv2.putText(
-                    frame,
-                    f"R-Angle: {int(right_knee_angle)} deg",
-                    (int(right_knee[0]), int(right_knee[1]) - 20),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.9, color, 2
-                )
+            # 랜드마크 표시
+            mp_drawing.draw_landmarks(frame, result.pose_landmarks, mp_pose.POSE_CONNECTIONS)
 
-                # 랜드마크 표시
-                mp_drawing.draw_landmarks(frame, result.pose_landmarks, mp_pose.POSE_CONNECTIONS)
+        out.write(frame)
 
-            out.write(frame)
+    # 이후 루프
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        result = pose.process(image_rgb)
+
+        if result.pose_landmarks:
+            landmarks = result.pose_landmarks.landmark
+            named = to_named_landmarks(landmarks)
+
+            #왼쪽 다리 각도
+            left_shoulder = (named["left_shoulder"].x * width, named["left_shoulder"].y * height)
+            left_hip = (named["left_hip"].x * width, named["left_hip"].y * height)
+            left_knee = (named["left_knee"].x * width, named["left_knee"].y * height)
+            left_ankle = (named["left_ankle"].x * width, named["left_ankle"].y * height)
+
+            left_leg_angle = calculate_angle(left_shoulder, left_hip, left_knee)
+            left_knee_angle = calculate_angle(left_hip, left_knee, left_ankle)
+
+            cv2.putText(
+                frame,
+                f"L-Angle: {int(left_leg_angle)} deg",
+                (int(left_hip[0]), int(left_hip[1]) - 20),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.9, (0, 255, 0), 2
+            )
+
+            cv2.putText(
+                frame,
+                f"R-Angle: {int(left_knee_angle)} deg",
+                (int(left_knee[0]), int(left_knee[1]) - 20),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.9, (0, 255, 255), 2
+            )
+
+            #오른쪽 다리 각도
+            right_shoulder = (landmarks[12].x * width, landmarks[12].y * height)
+            right_hip = (landmarks[24].x * width, landmarks[24].y * height)
+            right_knee = (landmarks[26].x * width, landmarks[26].y * height)
+            right_ankle = (landmarks[28].x * width, landmarks[28].y * height)
+
+            right_leg_angle = calculate_angle(right_shoulder, right_hip, right_knee)
+            right_knee_angle = calculate_angle(right_hip, right_knee, right_ankle)
+
+            color = 0
+            if right_leg_angle > 90:
+                color = (0,0,255)
+            else:
+                color = (0,255,0)
+            cv2.putText(
+                frame,
+                f"R-Angle: {int(right_leg_angle)} deg",
+                (int(right_hip[0]), int(right_hip[1]) - 20),
+                cv2.FONT_HERSHEY_SIMPLEX,                    
+                0.9, color, 2
+            )
+
+            cv2.putText(
+                frame,
+                f"R-Angle: {int(right_knee_angle)} deg",
+                (int(right_knee[0]), int(right_knee[1]) - 20),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.9, color, 2
+            )
+
+            # 랜드마크 표시
+            mp_drawing.draw_landmarks(frame, result.pose_landmarks, mp_pose.POSE_CONNECTIONS)
+
+        out.write(frame)
 
     cap.release()
     out.release()
