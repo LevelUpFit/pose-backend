@@ -244,4 +244,9 @@ def lunge_video(video_bytes: bytes) -> str:
     cap.release()
     out.release()
     print("Saved video to:", output_path)
-    return output_path
+    return {
+        "feedback_id": output_path,
+        "video_url": "sample",
+        "feedback_text": "sample",
+        "accuracy": accuracy
+    }
