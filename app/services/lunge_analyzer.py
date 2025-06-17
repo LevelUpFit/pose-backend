@@ -7,7 +7,10 @@ import os
 from app.utils.angle_utils import calculate_angle
 from app.services.person import Person
 from app.utils.video_utils import get_video_info, correct_video_orientation
+from app.utils.minio_client import client as minio_client, bucket_name
+import app.utils.minio_client as minio_client_module
 
+import uuid
 
 mp_pose = mp.solutions.pose
 mp_drawing = mp.solutions.drawing_utils
@@ -106,7 +109,7 @@ def check_pose(landmarks, width, height):
     else:
         return False
 
-def lunge_video(video_bytes: bytes) -> str:
+def lunge_video(video_bytes: bytes) -> dict:
     person = Person()
     bending_total = 0
     bending_correct = 0
@@ -119,7 +122,6 @@ def lunge_video(video_bytes: bytes) -> str:
     output_path = output_tmp.name
     output_tmp.close()
 
-    # video_utils에서 모든 정보 받아오기
     info = get_video_info(input_path)
     rotate = info["rotate"]
     width = info["width"]
@@ -127,21 +129,19 @@ def lunge_video(video_bytes: bytes) -> str:
     fps = info["fps"] or 30
 
     cap = cv2.VideoCapture(input_path)
-
-    # 첫 프레임에서 shape 확인 및 회전 적용
     ret, frame = cap.read()
     if not ret:
         cap.release()
         raise Exception("영상 읽기 실패")
-    frame = correct_video_orientation(frame)  # ← 여기에서 무조건 90도 회전
-    height, width = frame.shape[:2]  # 회전 적용 후 실제 shape
+    frame = correct_video_orientation(frame)
+    height, width = frame.shape[:2]
 
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    fourcc = cv2.VideoWriter_fourcc(*"avc1")  # 또는 "H264", "X264" (환경에 따라 다름)
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
     with mp_pose.Pose(static_image_mode=False) as pose:
         while ret:
-            proc_frame = correct_video_orientation(frame)  # 루프 내에서도 매 프레임마다 회전
+            proc_frame = correct_video_orientation(frame)
             image_rgb = cv2.cvtColor(proc_frame, cv2.COLOR_BGR2RGB)
             result1 = pose.process(image_rgb)
 
@@ -152,10 +152,7 @@ def lunge_video(video_bytes: bytes) -> str:
                 front_ankle = result["front_foot"]
                 front_x = int(front_ankle[0])
 
-                # 세로 방향 얇은 선(앞발 발끝 기준)
                 cv2.line(proc_frame, (front_x, 0), (front_x, height), (0, 255, 0), 2)
-
-                # 무릎이 발끝보다 앞으로 나갔는지 텍스트 표시
                 cv2.putText(
                     proc_frame,
                     "Knee Ahead" if result["knee_ahead"] else "OK",
@@ -180,8 +177,6 @@ def lunge_video(video_bytes: bytes) -> str:
                 lm_dict = {i: l for i, l in enumerate(landmarks)}
                 person.update_from_landmarks(lm_dict)
 
-                # 정확도 계산: bending일 때만 체크
-                # 왼쪽/오른쪽 다리 모두 bending 체크
                 for leg, angle in [
                     (person.left_leg, result["front_angle"] if result["front"] == "left" else result["rear_angle"]),
                     (person.right_leg, result["front_angle"] if result["front"] == "right" else result["rear_angle"])
@@ -191,7 +186,6 @@ def lunge_video(video_bytes: bytes) -> str:
                         if angle >= 90:
                             bending_correct += 1
 
-                # 정확도 계산 및 출력
                 accuracy = (bending_correct / bending_total * 100) if bending_total > 0 else 100.0
                 cv2.putText(
                     proc_frame,
@@ -201,7 +195,6 @@ def lunge_video(video_bytes: bytes) -> str:
                     1.0, (255, 0, 0), 3
                 )
 
-                # 좌측 상단에 movement 표시
                 cv2.putText(
                     proc_frame,
                     f"Left Leg: {person.left_leg.movement}",
@@ -217,8 +210,6 @@ def lunge_video(video_bytes: bytes) -> str:
                     0.8, (0, 0, 0), 2
                 )
 
-
-                # 텍스트 출력
                 cv2.putText(
                     proc_frame,
                     f"{int(result['front_angle'])}",
@@ -235,7 +226,6 @@ def lunge_video(video_bytes: bytes) -> str:
                     0.9, (0, 255, 0), 2
                 )
 
-                # 랜드마크 표시
                 mp_drawing.draw_landmarks(proc_frame, result1.pose_landmarks, mp_pose.POSE_CONNECTIONS)
 
             out.write(proc_frame)
@@ -244,9 +234,18 @@ def lunge_video(video_bytes: bytes) -> str:
     cap.release()
     out.release()
     print("Saved video to:", output_path)
+
+    bucket_name = "levelupfit-videos"
+
+    # MinIO 업로드
+    object_name = f"{uuid.uuid4()}.mp4"
+    minio_client.fput_object(bucket_name, object_name, output_path,content_type="video/mp4")
+    # MinIO URL 생성 (http로 접근한다고 가정)
+    video_url = f"https://{minio_client_module.MINIO_URL}/{bucket_name}/{object_name}"
+
     return {
         "feedback_id": output_path,
-        "video_url": "sample",
+        "video_url": video_url,
         "feedback_text": "sample",
         "accuracy": accuracy
     }
