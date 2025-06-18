@@ -3,6 +3,7 @@ import numpy as np
 import tempfile
 import mediapipe as mp
 import os
+import math
 
 from app.utils.angle_utils import calculate_angle
 from app.services.person import Person
@@ -66,16 +67,16 @@ def analyze_lunge(landmarks, width, height):
     # 무릎이 발끝보다 앞으로 나갔는지 판단 (발끝 기준)
     knee_ahead = front_knee[0] > front_foot[0] if front == "right" else front_knee[0] < front_foot[0]
 
-    # 각도 계산
-    left_hip = (landmarks[23].x * width, landmarks[23].y * height)
-    left_angle = calculate_angle(left_hip, left_knee, left_foot)
-    right_hip = (landmarks[24].x * width, landmarks[24].y * height)
-    right_angle = calculate_angle(right_hip, right_knee, right_foot)
+    # # 각도 계산
+    # left_hip = (landmarks[23].x * width, landmarks[23].y * height)
+    # left_angle = calculate_angle(left_hip, left_knee, left_foot)
+    # right_hip = (landmarks[24].x * width, landmarks[24].y * height)
+    # right_angle = calculate_angle(right_hip, right_knee, right_foot)
 
-    # 각도 기준으로 올바른 자세 판별 (예: 80~120도)
-    front_correct = is_angle_within(left_angle if front == "left" else right_angle)
-    rear_correct = is_angle_within(right_angle if front == "left" else left_angle)
-    is_lunge_pose = front_correct and rear_correct
+    # # 각도 기준으로 올바른 자세 판별 (예: 80~120도)
+    # front_correct = is_angle_within(left_angle if front == "left" else right_angle)
+    # rear_correct = is_angle_within(right_angle if front == "left" else left_angle)
+    # is_lunge_pose = front_correct and rear_correct
 
     return {
         "front": front,
@@ -83,11 +84,9 @@ def analyze_lunge(landmarks, width, height):
         "front_knee": front_knee,
         "front_foot": front_foot,
         "knee_ahead": knee_ahead,
-        "front_angle": left_angle if front == "left" else right_angle,
-        "rear_angle": right_angle if front == "left" else left_angle,
-        "front_correct": front_correct,
-        "rear_correct": rear_correct,
-        "is_lunge_pose": is_lunge_pose
+        # "front_angle": left_angle if front == "left" else right_angle,
+        # "rear_angle": right_angle if front == "left" else left_angle,
+
     }
 
 def check_pose(landmarks, width, height):
@@ -109,10 +108,18 @@ def check_pose(landmarks, width, height):
     else:
         return False
 
+def calc_penalty(over_distance, threshold=10, max_penalty=100):
+    # x: over_distance, threshold: 기준 픽셀, max_penalty: 최대 감점
+    # clamp exp 입력값 (예: 0~10)으로 제한하여 overflow 방지
+    x = max(0, over_distance)
+    exp_input = min((x / threshold) ** 2, 10)  # 10 이상이면 exp(10) ≈ 22026, 충분히 큼
+    penalty = math.exp(exp_input) - 1
+    return min(penalty, max_penalty)
+
 def lunge_video(video_bytes: bytes, feedback_id: int) -> dict:
     person = Person()
-    bending_total = 0
-    bending_correct = 0
+    total_penalty = 0  # 감점 누적
+    frame_count = 0
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as input_tmp:
         input_tmp.write(video_bytes)
@@ -136,7 +143,7 @@ def lunge_video(video_bytes: bytes, feedback_id: int) -> dict:
     frame = correct_video_orientation(frame)
     height, width = frame.shape[:2]
 
-    fourcc = cv2.VideoWriter_fourcc(*"avc1")  # 또는 "H264", "X264" (환경에 따라 다름)
+    fourcc = cv2.VideoWriter_fourcc(*"avc1")
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
     with mp_pose.Pose(static_image_mode=False) as pose:
@@ -150,80 +157,36 @@ def lunge_video(video_bytes: bytes, feedback_id: int) -> dict:
                 result = analyze_lunge(landmarks, width, height)
                 front_knee = result["front_knee"]
                 front_ankle = result["front_foot"]
-                front_x = int(front_ankle[0])
 
-                cv2.line(proc_frame, (front_x, 0), (front_x, height), (0, 255, 0), 2)
-                cv2.putText(
-                    proc_frame,
-                    "Knee Ahead" if result["knee_ahead"] else "OK",
-                    (front_x + 10, 50),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1.0, (0, 255, 0) if result["knee_ahead"] else (255, 0, 0), 2
-                )
-
-                front_knee = (landmarks[25] if result["front"] == "left" else landmarks[26])
-                rear_knee = (landmarks[25] if result["rear"] == "left" else landmarks[26])
-
-                front_coord = (int(front_knee.x * width), int(front_knee.y * height))
-                rear_coord = (int(rear_knee.x * width), int(rear_knee.y * height))
-
-                if result["is_lunge_pose"]:
-                    front_color = (0, 255, 0) if result["front_correct"] else (0, 0, 255)
-                    rear_color = (0, 255, 0) if result["rear_correct"] else (0, 0, 255)
+                # 기준선 감점 로직 (절대 픽셀 기준)
+                if result["front"] == "right":
+                    over_distance = max(0, front_knee[0] - front_ankle[0])  # 픽셀 단위
+                    vertical_line_x = int(front_ankle[0])
+                    knee_ahead = front_knee[0] > front_ankle[0]
                 else:
-                    front_color = (255, 255, 255)
-                    rear_color = (255, 255, 255)
+                    over_distance = max(0, front_ankle[0] - front_knee[0])  # 픽셀 단위
+                    vertical_line_x = int(front_ankle[0])
+                    knee_ahead = front_knee[0] < front_ankle[0]
 
+                # 감점: exp((x/10)**2) - 1, clamp 적용
+                penalty = calc_penalty(over_distance, threshold=10, max_penalty=100) if over_distance > 0 else 0
+                total_penalty += penalty
+                frame_count += 1
+
+                # 기준선(발끝) 수직선 그리기: 넘었으면 빨간색, 아니면 초록색
+                line_color = (0, 0, 255) if over_distance > 0 else (0, 255, 0)
+                cv2.line(proc_frame, (vertical_line_x, 0), (vertical_line_x, height), line_color, 2)
+
+                # 시각화 및 텍스트 출력
                 lm_dict = {i: l for i, l in enumerate(landmarks)}
                 person.update_from_landmarks(lm_dict)
 
-                for leg, angle in [
-                    (person.left_leg, result["front_angle"] if result["front"] == "left" else result["rear_angle"]),
-                    (person.right_leg, result["front_angle"] if result["front"] == "right" else result["rear_angle"])
-                ]:
-                    if leg.movement == "Bending":
-                        bending_total += 1
-                        if angle >= 90:
-                            bending_correct += 1
-
-                accuracy = (bending_correct / bending_total * 100) if bending_total > 0 else 100.0
                 cv2.putText(
                     proc_frame,
-                    f"Accuracy: {accuracy:.1f}%",
+                    f"Accuracy: {max(0, 100 - (total_penalty / frame_count if frame_count > 0 else 0)):.1f}%",
                     (width - 250, 40),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     1.0, (255, 0, 0), 3
-                )
-
-                cv2.putText(
-                    proc_frame,
-                    f"Left Leg: {person.left_leg.movement}",
-                    (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8, (0, 0, 0), 2
-                )
-                cv2.putText(
-                    proc_frame,
-                    f"Right Leg: {person.right_leg.movement}",
-                    (10, 60),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8, (0, 0, 0), 2
-                )
-
-                cv2.putText(
-                    proc_frame,
-                    f"{int(result['front_angle'])}",
-                    (front_coord[0], front_coord[1] - 20),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.9, (0, 255, 0), 2
-                )
-
-                cv2.putText(
-                    proc_frame,
-                    f"{int(result['rear_angle'])}",
-                    (rear_coord[0], rear_coord[1] - 20),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.9, (0, 255, 0), 2
                 )
 
                 mp_drawing.draw_landmarks(proc_frame, result1.pose_landmarks, mp_pose.POSE_CONNECTIONS)
@@ -237,10 +200,13 @@ def lunge_video(video_bytes: bytes, feedback_id: int) -> dict:
 
     bucket_name = "levelupfit-videos"
 
+    # 정확도 계산 (100점에서 평균 감점)
+    avg_penalty = total_penalty / frame_count if frame_count > 0 else 0
+    accuracy = max(0, 100 - avg_penalty)
+
     # MinIO 업로드
     object_name = f"{uuid.uuid4()}.mp4"
-    minio_client.fput_object(bucket_name, object_name, output_path,content_type="video/mp4")
-    # MinIO URL 생성 (http로 접근한다고 가정)
+    minio_client.fput_object(bucket_name, object_name, output_path, content_type="video/mp4")
     video_url = f"https://{minio_client_module.MINIO_URL}/{bucket_name}/{object_name}"
 
     return {
