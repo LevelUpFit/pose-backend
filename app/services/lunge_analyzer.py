@@ -109,7 +109,7 @@ def check_pose(landmarks, width, height):
     else:
         return False
 
-def lunge_video(video_bytes: bytes) -> dict:
+def lunge_video(video_bytes: bytes, feedback_id: int) -> dict:
     person = Person()
     bending_total = 0
     bending_correct = 0
@@ -244,7 +244,7 @@ def lunge_video(video_bytes: bytes) -> dict:
     video_url = f"https://{minio_client_module.MINIO_URL}/{bucket_name}/{object_name}"
 
     return {
-        "feedback_id": output_path,
+        "feedback_id": feedback_id,
         "video_url": video_url,
         "feedback_text": "sample",
         "accuracy": accuracy

@@ -23,7 +23,7 @@ async def analyze_uploaded_video(file: UploadFile = File(...)):
     return FileResponse(path=output_path, media_type="video/mp4", filename="analyzed_output.mp4")
 
 @router.post("/analyze/squat")
-async def analyze_uploaded_squat_video(file: UploadFile = File(...)):
+async def analyze_uploaded_squat_video(file: UploadFile = File(...),feedback_id: int = Form(...)):
     video_bytes = await file.read()
     output_path = squat_video(video_bytes)
     return FileResponse(path=output_path, media_type="video/mp4", filename="analyzed_output_squat.mp4")
@@ -47,5 +47,5 @@ async def analyze(
     # 임시 파일로 저장
 
     # 파일 경로로 get_video_info 호출
-    result = exercise_analyzers[exercise_id](video_bytes)
+    result = exercise_analyzers[exercise_id](video_bytes,feedback_id)
     return JSONResponse(result)
