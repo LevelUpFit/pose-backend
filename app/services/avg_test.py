@@ -156,9 +156,24 @@ def plot_knee_foot_distance(knee_xs, foot_xs):
 
 if __name__ == "__main__":
     import sys
-    if len(sys.argv) < 2:
-        print("Usage: python avg_test.py <video_path>")
+    if len(sys.argv) < 3:
+        print("Usage: python avg_test.py <video_path1> <video_path2>")
         exit(1)
-    video_path = sys.argv[1]
-    knee_xs, foot_xs = extract_front_knee_foot_xs_lunge_style(video_path)
-    plot_knee_foot_distance(knee_xs, foot_xs)
+    video_path1 = sys.argv[1]
+    video_path2 = sys.argv[2]
+    knee_xs1, foot_xs1 = extract_front_knee_foot_xs_lunge_style(video_path1)
+    knee_xs2, foot_xs2 = extract_front_knee_foot_xs_lunge_style(video_path2)
+
+    distances1 = [k - f for k, f in zip(knee_xs1, foot_xs1)]
+    distances2 = [k - f for k, f in zip(knee_xs2, foot_xs2)]
+
+    plt.figure(figsize=(10, 5))
+    plt.plot(distances1, label=f"Video 1: {video_path1}")
+    plt.plot(distances2, label=f"Video 2: {video_path2}")
+    plt.axhline(0, color='red', linestyle='--', label='Foot X')
+    plt.xlabel("Frame")
+    plt.ylabel("Knee X - Foot X (pixels)")
+    plt.title("Distance from Foot to Knee (X axis) Comparison")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
