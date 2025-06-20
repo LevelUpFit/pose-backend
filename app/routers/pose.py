@@ -5,6 +5,7 @@ from app.services.lunge_analyzer import lunge_video
 from app.services.lunge_analyzer import analyze_lunge
 from app.services.squat_analyzer import squat_video
 from app.services.squat_analyzer import analyze_squat
+from app.services.lunge_analyzer_ver2 import lunge_video_ver2
 from app.utils.video_utils import get_video_info
 from fastapi import HTTPException
 from pydantic import BaseModel
@@ -30,7 +31,7 @@ async def analyze_uploaded_squat_video(file: UploadFile = File(...),feedback_id:
 
 
 exercise_analyzers = {
-    19: lunge_video,
+    19: lunge_video_ver2,
     17: squat_video,
 }
 

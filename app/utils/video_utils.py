@@ -1,3 +1,5 @@
+import subprocess
+import json
 import cv2
 import ffmpeg
 
@@ -35,15 +37,51 @@ def get_video_info(path):
             "fps": 30
         }
 
-# def correct_video_orientation(frame, rotate):
-#     if rotate == 90:
-#         return cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-#     elif rotate == 180:
-#         return cv2.rotate(frame, cv2.ROTATE_180)
-#     elif rotate == 270:
-#         return cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
-#     return frame
+def get_rotation_from_ffprobe(path):
+    try:
+        result = subprocess.run([
+            'ffprobe',
+            '-v', 'quiet',
+            '-print_format', 'json',
+            '-show_streams',
+            path
+        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        info = json.loads(result.stdout.decode())
+        for stream in info.get('streams', []):
+            if stream.get('codec_type') == 'video':
+                side_data_list = stream.get('side_data_list', [])
+                for side_data in side_data_list:
+                    if side_data.get('side_data_type') == 'Display Matrix':
+                        rotation = side_data.get('rotation', 0)
+                        print(f"[video_utils] ffprobe rotation: {rotation}", flush=True)
+                        return int(rotation)
+        return 0
+    except Exception as e:
+        print("ffprobe failed:", e)
+        return 0
 
-def correct_video_orientation(frame):
-    # 무조건 오른쪽(시계방향)으로 90도 회전
-    return cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+def rotate_frame(frame, rotation):
+    if rotation == 90:
+        return cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    elif rotation == -90:
+        return cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+    elif rotation == 180 or rotation == -180:
+        return cv2.rotate(frame, cv2.ROTATE_180)
+    else:
+        return frame
+
+def correct_landmark_rotation(landmark, rotation, rot_width, rot_height):
+    x, y = landmark.x, landmark.y
+    if rotation == -90:
+        corrected_x = 1 - y
+        corrected_y = x
+    elif rotation == 90:
+        corrected_x = y
+        corrected_y = 1 - x
+    elif abs(rotation) == 180:
+        corrected_x = 1 - x
+        corrected_y = 1 - y
+    else:
+        corrected_x = x
+        corrected_y = y
+    return corrected_x * rot_width, corrected_y * rot_height

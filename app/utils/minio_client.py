@@ -18,7 +18,7 @@ client = Minio(
     secure=True  # http면 False, https면 True
 )
 
-bucket_name = "processed"
+bucket_name = "levelupfit-videos"
 
 # 버킷이 없으면 생성
 if not client.bucket_exists(bucket_name):
