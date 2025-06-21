@@ -63,7 +63,10 @@ def extract_hip_knee_y_lists_and_show_landmarks(frame_gen, show_landmarks=True):
                     cv2.circle(frame, (knee_x, knee_y), 8, (255, 0, 0), -1)  # 파란색
                     cv2.putText(frame, f"Knee y={knee_y}", (knee_x+10, knee_y),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
-                    cv2.imshow("Mediapipe Landmarks", frame)
+                    # === 여기서 프레임 크기 축소 ===
+                    scale = 0.5  # 0.5면 50% 크기로 축소, 0.3이면 30% 등
+                    small_frame = cv2.resize(frame, (0, 0), fx=scale, fy=scale)
+                    cv2.imshow("Mediapipe Landmarks", small_frame)
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         break
     if show_landmarks:
