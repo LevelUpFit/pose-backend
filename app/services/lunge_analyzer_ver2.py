@@ -15,6 +15,8 @@ def extract_front_knee_foot_xs_lunge_style(frame_gen, show_video=False):
     knee_xs = []
     foot_xs = []
     knee_angles = []
+    hip_y_list = []
+    knee_y_list = []
     width, height = None, None
 
     with mp_pose.Pose(static_image_mode=False) as pose:
@@ -68,9 +70,13 @@ def extract_front_knee_foot_xs_lunge_style(frame_gen, show_video=False):
                 ankle = (landmarks[ankle_idx].x * width, landmarks[ankle_idx].y * height)
                 knee_angle = calculate_angle(hip, knee, ankle)
                 knee_angles.append(knee_angle)
+                hip_y_list.append(int(hip[1]))
+                knee_y_list.append(int(knee[1]))
 
                 if show_video:
                     cv2.line(frame, (int(front_foot_x), 0), (int(front_foot_x), height), (0, 0, 255), 2)
+                    y = int(knee[1])
+                    cv2.line(frame, (0, y), (width, y), (0, 255, 255), 2)
                     mp.solutions.drawing_utils.draw_landmarks(
                         frame, result.pose_landmarks, mp_pose.POSE_CONNECTIONS
                     )
@@ -80,7 +86,7 @@ def extract_front_knee_foot_xs_lunge_style(frame_gen, show_video=False):
 
     if show_video:
         cv2.destroyAllWindows()
-    return knee_xs, foot_xs, knee_angles
+    return knee_xs, foot_xs, knee_angles, hip_y_list, knee_y_list
 
 def calc_penalty(over_distance, threshold=10, max_penalty=100):
     x = max(0, over_distance)
@@ -126,7 +132,7 @@ def lunge_video_ver2(video_bytes: bytes, feedback_id: int) -> dict:
         input_path = input_tmp.name
 
     frame_gen = rotated_frame_generator(input_path)
-    knee_xs, foot_xs, knee_angles = extract_front_knee_foot_xs_lunge_style(frame_gen, show_video=False)
+    knee_xs, foot_xs, knee_angles, hip_y_list, knee_y_list = extract_front_knee_foot_xs_lunge_style(frame_gen, show_video=False)
 
     distances = [knee - foot for knee, foot in zip(knee_xs, foot_xs)]
     penalties = []
@@ -139,32 +145,45 @@ def lunge_video_ver2(video_bytes: bytes, feedback_id: int) -> dict:
     avg_penalty = sum(penalties) / len(penalties) if penalties else 0
     accuracy = max(0, 100 - avg_penalty)
 
+    # 기존 movement_range 계산 (기존 기능 유지)
+    sorted_diffs = sorted([h - k for h, k in zip(hip_y_list, knee_y_list)])
+    n = len(sorted_diffs)
+    k = max(1, int(n * 0.1))
+    movement_range = round(np.mean(sorted_diffs[-k:]), 2)
+
+    # test.py와 동일한 가동범위 평가 공식
+    diff_y_list = [knee - hip for knee, hip in zip(knee_y_list, hip_y_list)]
+    sorted_diffs = sorted(diff_y_list, key=lambda x: abs(x))
+    n = len(sorted_diffs)
+    k = max(1, int(n * 0.1))
+    best_range_avg = np.mean(sorted_diffs[:k]) if k > 0 else 0
+
+    tolerance = 25  # 픽셀
+    if abs(best_range_avg) <= tolerance:
+        score = 100
+        level = "좋음"
+    elif abs(best_range_avg) <= tolerance * 2:
+        score = max(0, 100 - ((abs(best_range_avg) - tolerance) / tolerance) * 100)
+        level = "중간"
+    else:
+        score = 0
+        level = "나쁨"
+    score = min(score, 100)
 
     bucket_name = "levelupfit-videos"
-
-    # MinIO에 원본 영상 저장
     object_name = f"{uuid.uuid4()}.mp4"
     minio_client.fput_object(bucket_name, object_name, input_path, content_type="video/mp4")
     video_url = f"https://{minio_client_module.MINIO_URL}/{bucket_name}/{object_name}"
+    print(round(score, 1), level, round(best_range_avg, 2))
 
     return {
         "feedback_id": feedback_id,
         "video_url": video_url,
         "feedback_text": "sample",
-        "accuracy": accuracy
-        # "knee_xs": knee_xs,
-        # "foot_xs": foot_xs,
-        # "distances": distances,
-        # "penalties": penalties,
-        # "penalty_frames": penalty_frames,
-        # "knee_angles": knee_angles
+        "accuracy": accuracy,
+        "movementRange": round(score, 1),
+        "movementSpeed": 40.6,
+        "rangeScore": round(score, 1),
+        "rangeLevel": level,
+        "rangeDiffAvg": round(best_range_avg, 2)
     }
-
-# if __name__ == "__main__":
-#     if len(sys.argv) < 2:
-#         print("Usage: python lunge_analyzer_ver2.py <video_path>")
-#         exit(1)
-#     video_path = sys.argv[1]
-#     with open(video_path, "rb") as f:
-#         video_bytes = f.read()
-#     result = lunge_video_ver2(video_bytes, feedback_id=1)

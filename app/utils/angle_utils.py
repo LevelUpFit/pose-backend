@@ -52,3 +52,27 @@ def calculate_slope_angle(a, b):
     # 수직 기준으로 변환 (0 = 수직)
     vertical_angle = abs(90 - abs(angle_deg))
     return vertical_angle
+
+
+#상위 하위 10%의 평균 각도를 가지고 평균 각도 구하기
+def evaluate_range_accuracy_from_angle_list(angle_list, reference_min, reference_max):
+    """
+    angle_list: 프레임별 관절 각도 리스트
+    reference_min, reference_max: 기준 가동범위 설정
+    """
+    sorted_angles = sorted(angle_list)
+    n = len(sorted_angles)
+    k = max(1, int(n * 0.1))  # 상하위 10% 최소 1개 보장
+
+    # 상위/하위 10% 평균
+    lower_avg = np.mean(sorted_angles[:k])
+    upper_avg = np.mean(sorted_angles[-k:])
+
+    measured_range = upper_avg - lower_avg
+    reference_range = reference_max - reference_min
+
+    # 커버율 기반 정확도
+    coverage_ratio = measured_range / reference_range
+    accuracy = min(coverage_ratio * 100, 100)
+
+    return round(accuracy, 2), round(lower_avg, 2), round(upper_avg, 2)
