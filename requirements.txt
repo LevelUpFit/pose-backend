@@ -2,5 +2,8 @@ fastapi
 uvicorn
 mediapipe
 opencv-python
+python-dotenv
+minio
 numpy
 ffmpeg-python
+python-multipart
