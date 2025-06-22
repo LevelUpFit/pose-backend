@@ -4,7 +4,7 @@ FROM continuumio/miniconda3:latest
 # 2) 환경 파일 복사 및 conda env 생성
 #    만약 environment.vml 이 실제론 environment.yml 포맷이라면, 
 #    Dockerfile 안에서 이름만 environment.yml 로 바꿔 처리해도 됩니다.
-COPY environment.vml /tmp/environment.yml
+COPY environment.yml /tmp/environment.yml
 RUN conda env create -f /tmp/environment.yml
 
 # 3) 생성된 conda env 이름을 ENV 로 선언해서 자동 활성화
