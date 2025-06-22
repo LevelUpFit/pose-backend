@@ -216,7 +216,7 @@ def lunge_video_level2(video_bytes: bytes, feedback_id: int) -> dict:
         if penalty > 0:
             penalty_frames.append(idx)
     avg_penalty = sum(penalties) / len(penalties) if penalties else 0
-    accuracy = max(0, 100 - avg_penalty)
+    knee_accuracy = max(0, 100 - avg_penalty)
 
     # 기존 movement_range 계산 (기존 기능 유지)
     sorted_diffs = sorted([h - k for h, k in zip(hip_y_list, knee_y_list)])
@@ -247,19 +247,35 @@ def lunge_video_level2(video_bytes: bytes, feedback_id: int) -> dict:
     object_name = f"{uuid.uuid4()}.mp4"
     minio_client.fput_object(bucket_name, object_name, input_path, content_type="video/mp4")
     video_url = f"https://{minio_client_module.MINIO_URL}/{bucket_name}/{object_name}"
+    feedback_text = make_feedback_intermediate(vertical_score, knee_accuracy, movement_range)
     print(round(score, 1), level, round(best_range_avg, 2), round(vertical_score, 1), vertical_level, round(best_vertical, 2))
+
+    # 허리 수직 각도 점수는 vertical_score (0~100)
+    # 두 점수의 평균을 최종 accuracy로 사용
+    accuracy = round((knee_accuracy + vertical_score) / 2, 1)
 
     return {
         "feedback_id": feedback_id,
         "video_url": video_url,
-        "feedback_text": "sample",
+        "feedback_text": feedback_text,
         "accuracy": accuracy,
-        "movementRange": round(score, 1),
-        "movementSpeed": 40.6,
-        "rangeScore": round(score, 1),
-        "rangeLevel": level,
-        "rangeDiffAvg": round(best_range_avg, 2),
-        "verticalScore": round(vertical_score, 1),
-        "verticalLevel": vertical_level,
-        "verticalDeviationAvg": round(best_vertical, 2)
+        "movementRange": round(score, 1)
     }
+
+def make_feedback_intermediate(vertical_score, knee_accuracy, movement_range):
+    feedback = []
+    if knee_accuracy >= 90:
+        feedback.append("무릎이 발끝 앞으로 나가지 않았어요. 좋아요!")
+    else:
+        feedback.append("무릎이 발끝 앞으로 나갔습니다. 주의하세요!")
+    if vertical_score >= 90:
+        feedback.append("어깨, 엉덩이, 반대쪽 발이 잘 수직을 이루고 있습니다.")
+    elif vertical_score >= 60:
+        feedback.append("수직 정렬이 약간 부족합니다.\n엉덩이와 어깨, 반대쪽 발이 일직선이 되도록 신경써보세요.")
+    else:
+        feedback.append("수직 정렬이 많이 부족합니다.\n자세를 더 곧게 유지하세요.")
+    if movement_range >= 80:
+        feedback.append("가동범위가 충분합니다.")
+    else:
+        feedback.append("가동범위가 부족합니다. 더 깊게 내려가보세요.")
+    return "\n".join(feedback)
