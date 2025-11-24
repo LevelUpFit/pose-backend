@@ -15,7 +15,6 @@ RUN apt-get update && apt-get install -y \
     libgl1 \
     libglx-mesa0 \
     wget \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
