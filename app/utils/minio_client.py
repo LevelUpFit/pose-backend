@@ -21,5 +21,5 @@ client = Minio(
 bucket_name = "levelupfit-videos"
 
 # 버킷이 없으면 생성
-if not client.bucket_exists(bucket_name):
-    client.make_bucket(bucket_name)
+if not client.bucket_exists(bucket_name=bucket_name):
+    client.make_bucket(bucket_name=bucket_name)
