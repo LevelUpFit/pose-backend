@@ -12,7 +12,7 @@ MINIO_URL = os.getenv("MINIO_URL")
 
 # MinIO 클라이언트 생성
 client = Minio(
-    MINIO_URL,  # MinIO 서버 주소와 포트
+    endpoint=MINIO_URL,  # MinIO 서버 주소와 포트
     access_key=MINIO_ACCESS_KEY,
     secret_key=MINIO_SECRET_KEY,
     secure=True  # http면 False, https면 True
