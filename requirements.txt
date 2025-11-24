@@ -1,25 +1,18 @@
 # FastAPI Core
-fastapi==0.109.0
-uvicorn[standard]==0.27.0
-pydantic==2.5.3
-pydantic-settings==2.1.0
+fastapi>=0.121.0
+uvicorn>=0.38.0
 
 # MediaPipe & CV
-mediapipe==0.10.9
-opencv-python==4.9.0.80
-opencv-contrib-python==4.9.0.80
-numpy==1.26.3
+mediapipe>=0.10.14
+opencv-python>=4.11.0
+numpy>=2.2.0,<3.0.0
 
 # File Processing
-python-multipart==0.0.6
-aiofiles==23.2.1
+python-multipart>=0.0.20
 
 # MinIO Client
-minio==7.2.3
+minio>=7.2.18
 
 # Utilities
-python-dotenv==1.0.0
-pillow==10.2.0
-
-# Logging & Monitoring
-python-json-logger==2.0.7
+python-dotenv>=1.2.0
+ffmpeg-python>=0.2.0

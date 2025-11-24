@@ -14,9 +14,11 @@ RUN apt-get update && apt-get install -y \
     libgomp1 \
     libgl1 \
     libglx-mesa0 \
+    ffmpeg \
     wget \
+    curl \
     && rm -rf /var/lib/apt/lists/*
-    
+
 WORKDIR /app
 
 # requirements.txt 복사
