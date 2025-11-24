@@ -1,9 +1,25 @@
-fastapi
-uvicorn
-mediapipe
-opencv-python
-python-dotenv
-minio
-numpy
-ffmpeg-python
-python-multipart
+# FastAPI Core
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# MediaPipe & CV
+mediapipe==0.10.9
+opencv-python==4.9.0.80
+opencv-contrib-python==4.9.0.80
+numpy==1.26.3
+
+# File Processing
+python-multipart==0.0.6
+aiofiles==23.2.1
+
+# MinIO Client
+minio==7.2.3
+
+# Utilities
+python-dotenv==1.0.0
+pillow==10.2.0
+
+# Logging & Monitoring
+python-json-logger==2.0.7

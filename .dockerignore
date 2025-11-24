@@ -1,0 +1,88 @@
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Environment files
+.env.local
+.env.development
+.env.test
+*.env.backup
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+*.cover
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+Jenkinsfile
+
+# Docs
+README.md
+LICENSE
+docs/
+*.md
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+*.log
+logs/
+
+# Video files (테스트용)
+*.mp4
+*.avi
+*.mov
+test_videos/
+
+# Model files (너무 큰 경우)
+*.h5
+*.pb
+models/
+
+# Jupyter
+.ipynb_checkpoints
+*.ipynb

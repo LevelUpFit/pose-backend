@@ -14,3 +14,15 @@ def read_root():
         "message": "Hello from FastAPI!",
         "minio_endpoint": settings.MINIO_URL
     }
+
+# 헬스체크 엔드포인트 (Docker 헬스체크용)
+@app.get("/health")
+async def health_check():
+    """
+    컨테이너 헬스체크 엔드포인트
+    """
+    return {
+        "status": "healthy",
+        "service": "pose-analysis",
+        "version": "1.0.0"
+    }
