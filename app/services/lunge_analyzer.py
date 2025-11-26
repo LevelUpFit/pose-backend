@@ -98,8 +98,12 @@ def lunge_video(video_bytes: bytes, feedback_id: int) -> dict:
     output_path = output_tmp.name
     output_tmp.close()
 
-    fourcc = cv2.VideoWriter_fourcc(*"avc1")
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     out = cv2.VideoWriter(output_path, fourcc, fps, (rot_width, rot_height))
+    
+    if not out.isOpened():
+        cap.release()
+        raise Exception("VideoWriter 초기화 실패")
 
     with mp_pose.Pose(static_image_mode=False) as pose:
         # 첫 프레임 처리

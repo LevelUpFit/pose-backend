@@ -18,7 +18,7 @@ def annotate_lunge_video(input_path: str, output_path: str):
     cap.release()
 
     # 2) VideoWriter 준비 (MP4)
-    fourcc = cv2.VideoWriter_fourcc(*'avc1')
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
     if not writer.isOpened():
         raise RuntimeError(f"Cannot open VideoWriter for {output_path}")

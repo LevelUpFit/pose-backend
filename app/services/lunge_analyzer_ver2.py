@@ -101,8 +101,12 @@ def save_landmark_video(input_path, output_path):
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30
-    fourcc = cv2.VideoWriter_fourcc(*'avc1')
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    
+    if not out.isOpened():
+        cap.release()
+        raise Exception("VideoWriter 초기화 실패")
 
     mp_pose = mp.solutions.pose
     with mp_pose.Pose(static_image_mode=False) as pose:
