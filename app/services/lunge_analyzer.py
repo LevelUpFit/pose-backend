@@ -146,6 +146,7 @@ def lunge_video(video_bytes: bytes, feedback_id: int) -> dict:
 
     cap.release()
     out.release()
+    cv2.destroyAllWindows()  # OpenCV 리소스 정리
     print("Saved video to:", output_path)
 
     bucket_name = "levelupfit-videos"
@@ -154,13 +155,23 @@ def lunge_video(video_bytes: bytes, feedback_id: int) -> dict:
     accuracy = max(0, 100 - avg_penalty)
 
     object_name = f"{uuid.uuid4()}.mp4"
-    minio_client.fput_object(
-        bucket_name=bucket_name,
-        object_name=object_name,
-        file_path=output_path,
-        content_type="video/mp4"
-    )
-    video_url = f"https://{minio_client_module.MINIO_URL}/{bucket_name}/{object_name}"
+    
+    try:
+        # MinIO 업로드
+        minio_client.fput_object(
+            bucket_name=bucket_name,
+            object_name=object_name,
+            file_path=output_path,
+            content_type="video/mp4"
+        )
+        video_url = f"https://{minio_client_module.MINIO_URL}/{bucket_name}/{object_name}"
+    finally:
+        # 임시 파일 정리
+        import os
+        if os.path.exists(input_path):
+            os.remove(input_path)
+        if os.path.exists(output_path):
+            os.remove(output_path)
 
     return {
         "feedback_id": feedback_id,

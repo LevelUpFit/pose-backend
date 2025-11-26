@@ -382,12 +382,20 @@ def lunge_video_level2(video_bytes: bytes, feedback_id: int) -> dict:
     # (4) MinIO에 업로드 (원본 input_path 대신 annotated_path)
     bucket_name = "levelupfit-videos"
     object_name = f"{uuid.uuid4()}.mp4"
-    minio_client.fput_object(
-        bucket_name=bucket_name,
-        object_name=object_name,
-        file_path=annotated_path,
-        content_type="video/mp4"
-    )
+    try:
+        minio_client.fput_object(
+            bucket_name=bucket_name,
+            object_name=object_name,
+            file_path=annotated_path,
+            content_type="video/mp4"
+        )
+    finally:
+        # 임시 파일 정리
+        import os
+        if os.path.exists(input_path):
+            os.remove(input_path)
+        if os.path.exists(annotated_path):
+            os.remove(annotated_path)
     video_url = f"https://{minio_client_module.MINIO_URL}/{bucket_name}/{object_name}"
     feedback_text = make_feedback_advanced(vertical_score, movementSpeed, knee_accuracy, round(score, 1))
     accuracy = (knee_accuracy + vertical_score) / 2
