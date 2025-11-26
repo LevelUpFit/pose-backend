@@ -163,6 +163,34 @@ def lunge_video(video_bytes: bytes, feedback_id: int) -> dict:
     cv2.destroyAllWindows()  # OpenCV 리소스 정리
     print("Saved video to:", output_path)
 
+    # FFmpeg로 브라우저 스트리밍 최적화 (faststart)
+    import subprocess
+    optimized_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+    optimized_path = optimized_tmp.name
+    optimized_tmp.close()
+    
+    try:
+        # FFmpeg로 H.264 재인코딩 + faststart (moov atom을 파일 앞으로)
+        subprocess.run([
+            'ffmpeg', '-i', output_path,
+            '-c:v', 'libx264',  # H.264 코덱
+            '-preset', 'fast',  # 빠른 인코딩
+            '-movflags', '+faststart',  # 스트리밍 최적화
+            '-y',  # 덮어쓰기
+            optimized_path
+        ], check=True, capture_output=True)
+        
+        # 최적화된 파일로 교체
+        final_output = optimized_path
+        print(f"Optimized video with FFmpeg: {final_output}")
+    except subprocess.CalledProcessError as e:
+        print(f"FFmpeg optimization failed: {e.stderr.decode()}")
+        # FFmpeg 실패시 원본 사용
+        final_output = output_path
+    except FileNotFoundError:
+        print("FFmpeg not found, using original video")
+        final_output = output_path
+
     bucket_name = "levelupfit-videos"
 
     avg_penalty = total_penalty / frame_count if frame_count > 0 else 0
@@ -174,8 +202,8 @@ def lunge_video(video_bytes: bytes, feedback_id: int) -> dict:
         # MinIO 업로드 (브라우저 인라인 재생 가능하도록)
         import os
         from minio import S3Error
-        file_size = os.path.getsize(output_path)
-        with open(output_path, 'rb') as file_data:
+        file_size = os.path.getsize(final_output)
+        with open(final_output, 'rb') as file_data:
             minio_client.put_object(
                 bucket_name=bucket_name,
                 object_name=object_name,
@@ -191,6 +219,8 @@ def lunge_video(video_bytes: bytes, feedback_id: int) -> dict:
             os.remove(input_path)
         if os.path.exists(output_path):
             os.remove(output_path)
+        if 'optimized_path' in locals() and os.path.exists(optimized_path) and optimized_path != final_output:
+            os.remove(optimized_path)
 
     return {
         "feedback_id": feedback_id,
