@@ -255,7 +255,10 @@ def lunge_video_ver2(video_bytes: bytes, feedback_id: int) -> dict:
             bucket_name=bucket_name,
             object_name=object_name,
             file_path=output_path,
-            content_type="video/mp4"
+            content_type="video/mp4",
+            metadata={
+                "Content-Disposition": "inline"
+            }
         )
         video_url = f"https://{minio_client_module.MINIO_URL}/{bucket_name}/{object_name}"
     finally:

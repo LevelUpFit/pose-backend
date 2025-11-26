@@ -23,3 +23,23 @@ bucket_name = "levelupfit-videos"
 # 버킷이 없으면 생성
 if not client.bucket_exists(bucket_name=bucket_name):
     client.make_bucket(bucket_name=bucket_name)
+
+# 버킷을 public read로 설정 (브라우저에서 직접 재생 가능)
+import json
+policy = {
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Principal": {"AWS": "*"},
+            "Action": ["s3:GetObject"],
+            "Resource": [f"arn:aws:s3:::{bucket_name}/*"]
+        }
+    ]
+}
+
+try:
+    client.set_bucket_policy(bucket_name, json.dumps(policy))
+    print(f"Bucket '{bucket_name}' is now public for read access")
+except Exception as e:
+    print(f"Warning: Could not set bucket policy: {e}")

@@ -250,7 +250,10 @@ def lunge_video_level2(video_bytes: bytes, feedback_id: int) -> dict:
             bucket_name=bucket_name,
             object_name=object_name,
             file_path=input_path,
-            content_type="video/mp4"
+            content_type="video/mp4",
+            metadata={
+                "Content-Disposition": "inline"
+            }
         )
     finally:
         # 임시 파일 정리

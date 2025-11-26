@@ -161,12 +161,16 @@ def lunge_video(video_bytes: bytes, feedback_id: int) -> dict:
     object_name = f"{uuid.uuid4()}.mp4"
     
     try:
-        # MinIO 업로드
+        # MinIO 업로드 (브라우저 인라인 재생 가능하도록 메타데이터 설정)
+        from minio.commonconfig import REPLACE, CopySource
         minio_client.fput_object(
             bucket_name=bucket_name,
             object_name=object_name,
             file_path=output_path,
-            content_type="video/mp4"
+            content_type="video/mp4",
+            metadata={
+                "Content-Disposition": "inline"
+            }
         )
         video_url = f"https://{minio_client_module.MINIO_URL}/{bucket_name}/{object_name}"
     finally:
