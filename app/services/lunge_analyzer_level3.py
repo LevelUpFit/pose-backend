@@ -18,8 +18,21 @@ def annotate_lunge_video(input_path: str, output_path: str):
     cap.release()
 
     # 2) VideoWriter 준비 (MP4)
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    # H.264 코덱 시도 (브라우저 호환성 최고)
+    writer = None
+    for codec in ['avc1', 'h264', 'H264', 'x264', 'X264']:
+        fourcc = cv2.VideoWriter_fourcc(*codec)
+        writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        if writer.isOpened():
+            print(f"Using codec: {codec}")
+            break
+    
+    if writer is None or not writer.isOpened():
+        # 모든 H.264 코덱 실패시 mp4v로 폴백
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        print("Fallback to mp4v codec")
+    
     if not writer.isOpened():
         raise RuntimeError(f"Cannot open VideoWriter for {output_path}")
 
@@ -383,15 +396,16 @@ def lunge_video_level2(video_bytes: bytes, feedback_id: int) -> dict:
     bucket_name = "levelupfit-videos"
     object_name = f"{uuid.uuid4()}.mp4"
     try:
-        minio_client.fput_object(
-            bucket_name=bucket_name,
-            object_name=object_name,
-            file_path=annotated_path,
-            content_type="video/mp4",
-            metadata={
-                "Content-Disposition": "inline"
-            }
-        )
+        import os
+        file_size = os.path.getsize(annotated_path)
+        with open(annotated_path, 'rb') as file_data:
+            minio_client.put_object(
+                bucket_name=bucket_name,
+                object_name=object_name,
+                data=file_data,
+                length=file_size,
+                content_type="video/mp4"
+            )
     finally:
         # 임시 파일 정리
         import os

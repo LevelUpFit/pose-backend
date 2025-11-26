@@ -246,15 +246,16 @@ def lunge_video_level2(video_bytes: bytes, feedback_id: int) -> dict:
     bucket_name = "levelupfit-videos"
     object_name = f"{uuid.uuid4()}.mp4"
     try:
-        minio_client.fput_object(
-            bucket_name=bucket_name,
-            object_name=object_name,
-            file_path=input_path,
-            content_type="video/mp4",
-            metadata={
-                "Content-Disposition": "inline"
-            }
-        )
+        import os
+        file_size = os.path.getsize(input_path)
+        with open(input_path, 'rb') as file_data:
+            minio_client.put_object(
+                bucket_name=bucket_name,
+                object_name=object_name,
+                data=file_data,
+                length=file_size,
+                content_type="video/mp4"
+            )
     finally:
         # 임시 파일 정리
         import os

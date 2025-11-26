@@ -98,8 +98,18 @@ def lunge_video(video_bytes: bytes, feedback_id: int) -> dict:
     output_path = output_tmp.name
     output_tmp.close()
 
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    out = cv2.VideoWriter(output_path, fourcc, fps, (rot_width, rot_height))
+    # H.264 코덱 시도 (브라우저 호환성 최고)
+    for codec in ['avc1', 'h264', 'H264', 'x264', 'X264']:
+        fourcc = cv2.VideoWriter_fourcc(*codec)
+        out = cv2.VideoWriter(output_path, fourcc, fps, (rot_width, rot_height))
+        if out.isOpened():
+            print(f"Using codec: {codec}")
+            break
+    else:
+        # 모든 H.264 코덱 실패시 mp4v로 폴백
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        out = cv2.VideoWriter(output_path, fourcc, fps, (rot_width, rot_height))
+        print("Fallback to mp4v codec")
     
     if not out.isOpened():
         cap.release()
@@ -161,17 +171,18 @@ def lunge_video(video_bytes: bytes, feedback_id: int) -> dict:
     object_name = f"{uuid.uuid4()}.mp4"
     
     try:
-        # MinIO 업로드 (브라우저 인라인 재생 가능하도록 메타데이터 설정)
-        from minio.commonconfig import REPLACE, CopySource
-        minio_client.fput_object(
-            bucket_name=bucket_name,
-            object_name=object_name,
-            file_path=output_path,
-            content_type="video/mp4",
-            metadata={
-                "Content-Disposition": "inline"
-            }
-        )
+        # MinIO 업로드 (브라우저 인라인 재생 가능하도록)
+        import os
+        from minio import S3Error
+        file_size = os.path.getsize(output_path)
+        with open(output_path, 'rb') as file_data:
+            minio_client.put_object(
+                bucket_name=bucket_name,
+                object_name=object_name,
+                data=file_data,
+                length=file_size,
+                content_type="video/mp4"
+            )
         video_url = f"https://{minio_client_module.MINIO_URL}/{bucket_name}/{object_name}"
     finally:
         # 임시 파일 정리

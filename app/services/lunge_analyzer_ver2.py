@@ -101,8 +101,19 @@ def save_landmark_video(input_path, output_path):
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    
+    # H.264 코덱 시도 (브라우저 호환성 최고)
+    for codec in ['avc1', 'h264', 'H264', 'x264', 'X264']:
+        fourcc = cv2.VideoWriter_fourcc(*codec)
+        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        if out.isOpened():
+            print(f"Using codec: {codec}")
+            break
+    else:
+        # 모든 H.264 코덱 실패시 mp4v로 폴백
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        print("Fallback to mp4v codec")
     
     if not out.isOpened():
         cap.release()
@@ -251,15 +262,16 @@ def lunge_video_ver2(video_bytes: bytes, feedback_id: int) -> dict:
     object_name = f"{uuid.uuid4()}.mp4"
     
     try:
-        minio_client.fput_object(
-            bucket_name=bucket_name,
-            object_name=object_name,
-            file_path=output_path,
-            content_type="video/mp4",
-            metadata={
-                "Content-Disposition": "inline"
-            }
-        )
+        import os
+        file_size = os.path.getsize(output_path)
+        with open(output_path, 'rb') as file_data:
+            minio_client.put_object(
+                bucket_name=bucket_name,
+                object_name=object_name,
+                data=file_data,
+                length=file_size,
+                content_type="video/mp4"
+            )
         video_url = f"https://{minio_client_module.MINIO_URL}/{bucket_name}/{object_name}"
     finally:
         # 임시 파일 정리
