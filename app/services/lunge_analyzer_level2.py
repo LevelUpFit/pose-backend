@@ -245,7 +245,12 @@ def lunge_video_level2(video_bytes: bytes, feedback_id: int) -> dict:
 
     bucket_name = "levelupfit-videos"
     object_name = f"{uuid.uuid4()}.mp4"
-    minio_client.fput_object(bucket_name, object_name, input_path, content_type="video/mp4")
+    minio_client.fput_object(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        file_path=input_path,
+        content_type="video/mp4"
+    )
     video_url = f"https://{minio_client_module.MINIO_URL}/{bucket_name}/{object_name}"
     feedback_text = make_feedback_intermediate(vertical_score, knee_accuracy, movement_range)
     print(round(score, 1), level, round(best_range_avg, 2), round(vertical_score, 1), vertical_level, round(best_vertical, 2))
