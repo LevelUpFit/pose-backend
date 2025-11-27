@@ -1,27 +1,44 @@
-# 1) conda 베이스 이미지 선택
-FROM continuumio/miniconda3:latest
+# Dockerfile for pose-backend
+# FastAPI + MediaPipe 운동 자세 분석 서비스
 
-# 2) 환경 파일 복사 및 conda env 생성
-#    만약 environment.vml 이 실제론 environment.yml 포맷이라면, 
-#    Dockerfile 안에서 이름만 environment.yml 로 바꿔 처리해도 됩니다.
-COPY environment.vml /tmp/environment.yml
-RUN conda env create -f /tmp/environment.yml
+FROM python:3.11-slim
 
-# 3) 생성된 conda env 이름을 ENV 로 선언해서 자동 활성화
-#    environment.yml 안에 `name: myenv` 로 돼 있다면 아래도 myenv 로.
-ARG CONDA_ENV=myenv
-ENV PATH /opt/conda/envs/$CONDA_ENV/bin:$PATH
+# 시스템 패키지 설치
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    libgl1 \
+    libglx-mesa0 \
+    ffmpeg \
+    libavcodec-extra \
+    wget \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# 4) 작업 디렉터리 설정 및 소스 복사
 WORKDIR /app
-COPY . /app
 
-# 5) (선택) 불필요한 캐시나 파일 무시
-#    .dockerignore 에 __pycache__/, *.pyc, .git 등을 추가해 두시면 이미지가 가벼워집니다.
+# requirements.txt 복사 및 의존성 설치
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# 6) 외부에 노출할 포트
+# 애플리케이션 코드 복사
+COPY . .
+
+# .env 파일 복사 (Jenkins에서 생성)
+# COPY .env .env
+
+# 포트 노출
 EXPOSE 8000
 
-# 7) 컨테이너 시작 시 uvicorn 으로 FastAPI/ASGI 서버 실행
-#    모듈 경로(main:app) 부분은 본인 프로젝트에 맞춰 바꿔주세요.
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 헬스체크
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Uvicorn으로 FastAPI 실행
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -101,8 +101,23 @@ def save_landmark_video(input_path, output_path):
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30
-    fourcc = cv2.VideoWriter_fourcc(*'avc1')
-    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    
+    # H.264 코덱 시도 (브라우저 호환성 최고)
+    for codec in ['avc1', 'h264', 'H264', 'x264', 'X264']:
+        fourcc = cv2.VideoWriter_fourcc(*codec)
+        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        if out.isOpened():
+            print(f"Using codec: {codec}")
+            break
+    else:
+        # 모든 H.264 코덱 실패시 mp4v로 폴백
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        print("Fallback to mp4v codec")
+    
+    if not out.isOpened():
+        cap.release()
+        raise Exception("VideoWriter 초기화 실패")
 
     mp_pose = mp.solutions.pose
     with mp_pose.Pose(static_image_mode=False) as pose:
@@ -245,8 +260,27 @@ def lunge_video_ver2(video_bytes: bytes, feedback_id: int) -> dict:
     # 5. MinIO에 랜드마크 영상 업로드
     bucket_name = "levelupfit-videos"
     object_name = f"{uuid.uuid4()}.mp4"
-    minio_client.fput_object(bucket_name, object_name, output_path, content_type="video/mp4")
-    video_url = f"https://{minio_client_module.MINIO_URL}/{bucket_name}/{object_name}"
+    
+    try:
+        import os
+        file_size = os.path.getsize(output_path)
+        with open(output_path, 'rb') as file_data:
+            minio_client.put_object(
+                bucket_name=bucket_name,
+                object_name=object_name,
+                data=file_data,
+                length=file_size,
+                content_type="video/mp4"
+            )
+        video_url = f"https://{minio_client_module.MINIO_URL}/{bucket_name}/{object_name}"
+    finally:
+        # 임시 파일 정리
+        import os
+        if os.path.exists(input_path):
+            os.remove(input_path)
+        if os.path.exists(output_path):
+            os.remove(output_path)
+    
     feedback_text = make_feedback_basic(accuracy, round(score, 1))
     print(round(score, 1), level, round(best_range_avg, 2))
 

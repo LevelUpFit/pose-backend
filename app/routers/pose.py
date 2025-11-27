@@ -20,10 +20,13 @@ class AnalyzeRequest(BaseModel):
 router = APIRouter()
 
 @router.post("/analyze/lunge")
-async def analyze_uploaded_video(file: UploadFile = File(...)):
+async def analyze_uploaded_video(
+    file: UploadFile = File(...),
+    feedback_id: int = Form(...)
+):
     video_bytes = await file.read()
-    output_path = lunge_video(video_bytes)
-    return FileResponse(path=output_path, media_type="video/mp4", filename="analyzed_output.mp4")
+    result = lunge_video(video_bytes, feedback_id)
+    return JSONResponse(result)
 
 @router.post("/analyze/squat")
 async def analyze_uploaded_squat_video(file: UploadFile = File(...),feedback_id: int = Form(...)):
