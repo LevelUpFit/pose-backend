@@ -3,3 +3,10 @@ __pycache__/
 .vscode/
 .env
 .DS_Store
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv/
+*.egg-info/
