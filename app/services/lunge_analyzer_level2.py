@@ -175,6 +175,11 @@ def analyze_vertical_alignment(frame_gen):
     return vertical_angles
 
 def lunge_video_level2(video_bytes: bytes, feedback_id: int) -> dict:
+    print("="*50)
+    print("🎯 LEVEL 2 분석 시작 (중급)")
+    print("분석 항목: 무릎-발끝 정렬, 수직선 정렬, 가동범위")
+    print("="*50)
+    
     import tempfile
     import uuid
     from app.utils.minio_client import client as minio_client, bucket_name
