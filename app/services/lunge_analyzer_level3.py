@@ -300,7 +300,12 @@ def find_contraction_relaxation(diff_y_list, fps, threshold=3):
     relaxation_percent = calc_percent(avg_relaxation)
     return avg_contraction, avg_relaxation, contraction_percent, relaxation_percent
 
-def lunge_video_level2(video_bytes: bytes, feedback_id: int) -> dict:
+def lunge_video_level3(video_bytes: bytes, feedback_id: int) -> dict:
+    print("="*50)
+    print("🎯 LEVEL 3 분석 시작 (고급)")
+    print("분석 항목: 무릎-발끝 정렬, 수직선 정렬, 가동범위, 수축/이완 속도")
+    print("="*50)
+    
     import tempfile
     import uuid
     from app.utils.minio_client import client as minio_client, bucket_name

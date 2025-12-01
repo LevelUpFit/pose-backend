@@ -200,6 +200,11 @@ def plot_knee_foot_distance(knee_xs, foot_xs):
     plt.show()
 
 def lunge_video_ver2(video_bytes: bytes, feedback_id: int) -> dict:
+    print("="*50)
+    print("🎯 LEVEL 1 분석 시작 (기본)")
+    print("분석 항목: 무릎-발끝 정렬, 가동범위")
+    print("="*50)
+    
     import tempfile
     import uuid
     from app.utils.minio_client import client as minio_client, bucket_name

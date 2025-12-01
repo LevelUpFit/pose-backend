@@ -7,7 +7,7 @@ from app.services.squat_analyzer import squat_video
 from app.services.squat_analyzer import analyze_squat
 from app.services.lunge_analyzer_ver2 import lunge_video_ver2
 from app.services.lunge_analyzer_level2 import lunge_video_level2
-from app.services.lunge_analyzer_level3 import lunge_video_level2 as lunge_video_level3
+from app.services.lunge_analyzer_level3 import lunge_video_level3
 from app.utils.video_utils import get_video_info
 from fastapi import HTTPException
 from pydantic import BaseModel
