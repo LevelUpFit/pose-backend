@@ -397,13 +397,41 @@ def lunge_video_level3(video_bytes: bytes, feedback_id: int) -> dict:
     annotated_tmp.close()
     annotate_lunge_video(input_path, annotated_path)
 
-    # (4) MinIO에 업로드 (원본 input_path 대신 annotated_path)
+    # (3-1) FFmpeg로 브라우저 스트리밍 최적화 (faststart)
+    import subprocess
+    optimized_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+    optimized_path = optimized_tmp.name
+    optimized_tmp.close()
+    
+    try:
+        # FFmpeg로 H.264 재인코딩 + faststart (moov atom을 파일 앞으로)
+        subprocess.run([
+            'ffmpeg', '-i', annotated_path,
+            '-c:v', 'libx264',  # H.264 코덱
+            '-preset', 'fast',  # 빠른 인코딩
+            '-movflags', '+faststart',  # 스트리밍 최적화
+            '-y',  # 덮어쓰기
+            optimized_path
+        ], check=True, capture_output=True)
+        
+        # 최적화된 파일로 교체
+        final_output = optimized_path
+        print(f"Optimized video with FFmpeg: {final_output}")
+    except subprocess.CalledProcessError as e:
+        print(f"FFmpeg optimization failed: {e.stderr.decode()}")
+        # FFmpeg 실패시 원본 사용
+        final_output = annotated_path
+    except FileNotFoundError:
+        print("FFmpeg not found, using original video")
+        final_output = annotated_path
+
+    # (4) MinIO에 업로드 (원본 input_path 대신 final_output)
     bucket_name = "levelupfit-videos"
     object_name = f"{uuid.uuid4()}.mp4"
     try:
         import os
-        file_size = os.path.getsize(annotated_path)
-        with open(annotated_path, 'rb') as file_data:
+        file_size = os.path.getsize(final_output)
+        with open(final_output, 'rb') as file_data:
             minio_client.put_object(
                 bucket_name=bucket_name,
                 object_name=object_name,
@@ -418,6 +446,8 @@ def lunge_video_level3(video_bytes: bytes, feedback_id: int) -> dict:
             os.remove(input_path)
         if os.path.exists(annotated_path):
             os.remove(annotated_path)
+        if 'optimized_path' in locals() and os.path.exists(optimized_path) and optimized_path != final_output:
+            os.remove(optimized_path)
     video_url = f"https://{minio_client_module.MINIO_URL}/{bucket_name}/{object_name}"
     feedback_text = make_feedback_advanced(vertical_score, movementSpeed, knee_accuracy, round(score, 1))
     accuracy = (knee_accuracy + vertical_score) / 2

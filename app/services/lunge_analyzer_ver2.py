@@ -103,13 +103,15 @@ def save_landmark_video(input_path, output_path):
     fps = cap.get(cv2.CAP_PROP_FPS) or 30
     
     # H.264 코덱 시도 (브라우저 호환성 최고)
+    out = None
     for codec in ['avc1', 'h264', 'H264', 'x264', 'X264']:
         fourcc = cv2.VideoWriter_fourcc(*codec)
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
         if out.isOpened():
             print(f"Using codec: {codec}")
             break
-    else:
+    
+    if out is None or not out.isOpened():
         # 모든 H.264 코덱 실패시 mp4v로 폴백
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
@@ -222,6 +224,34 @@ def lunge_video_ver2(video_bytes: bytes, feedback_id: int) -> dict:
     # 3. 랜드마크 영상 생성
     save_landmark_video(input_path, output_path)
 
+    # 3-1. FFmpeg로 브라우저 스트리밍 최적화 (faststart)
+    import subprocess
+    optimized_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+    optimized_path = optimized_tmp.name
+    optimized_tmp.close()
+    
+    try:
+        # FFmpeg로 H.264 재인코딩 + faststart (moov atom을 파일 앞으로)
+        subprocess.run([
+            'ffmpeg', '-i', output_path,
+            '-c:v', 'libx264',  # H.264 코덱
+            '-preset', 'fast',  # 빠른 인코딩
+            '-movflags', '+faststart',  # 스트리밍 최적화
+            '-y',  # 덮어쓰기
+            optimized_path
+        ], check=True, capture_output=True)
+        
+        # 최적화된 파일로 교체
+        final_output = optimized_path
+        print(f"Optimized video with FFmpeg: {final_output}")
+    except subprocess.CalledProcessError as e:
+        print(f"FFmpeg optimization failed: {e.stderr.decode()}")
+        # FFmpeg 실패시 원본 사용
+        final_output = output_path
+    except FileNotFoundError:
+        print("FFmpeg not found, using original video")
+        final_output = output_path
+
     # 4. 분석 (기존대로 input_path 사용)
     frame_gen = rotated_frame_generator(input_path)
     knee_xs, foot_xs, knee_angles, hip_y_list, knee_y_list = extract_front_knee_foot_xs_lunge_style(frame_gen, show_video=False)
@@ -268,8 +298,8 @@ def lunge_video_ver2(video_bytes: bytes, feedback_id: int) -> dict:
     
     try:
         import os
-        file_size = os.path.getsize(output_path)
-        with open(output_path, 'rb') as file_data:
+        file_size = os.path.getsize(final_output)
+        with open(final_output, 'rb') as file_data:
             minio_client.put_object(
                 bucket_name=bucket_name,
                 object_name=object_name,
@@ -285,6 +315,8 @@ def lunge_video_ver2(video_bytes: bytes, feedback_id: int) -> dict:
             os.remove(input_path)
         if os.path.exists(output_path):
             os.remove(output_path)
+        if 'optimized_path' in locals() and os.path.exists(optimized_path) and optimized_path != final_output:
+            os.remove(optimized_path)
     
     feedback_text = make_feedback_basic(accuracy, round(score, 1))
     print(round(score, 1), level, round(best_range_avg, 2))
