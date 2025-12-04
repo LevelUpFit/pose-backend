@@ -653,8 +653,17 @@ def lunge_video_level3(video_bytes: bytes, feedback_id: int) -> dict:
         if 'optimized_path' in locals() and os.path.exists(optimized_path) and optimized_path != final_output:
             os.remove(optimized_path)
     video_url = f"https://{minio_client_module.MINIO_URL}/{bucket_name}/{object_name}"
-    feedback_text = make_feedback_advanced(vertical_score, movementSpeed, knee_accuracy, round(score, 1))
     accuracy = (knee_accuracy + vertical_score) / 2
+    
+    # LLM 피드백 생성 (실패시 기존 방식으로 fallback)
+    from app.services.llm_feedback import generate_feedback_level3
+    feedback_text = generate_feedback_level3(
+        accuracy=accuracy,
+        movement_range=round(score, 1),
+        knee_accuracy=knee_accuracy,
+        vertical_score=vertical_score,
+        movement_speed=movementSpeed
+    )
     print(round(score, 1), level, round(best_range_avg, 2), round(vertical_score, 1), vertical_level, round(best_vertical, 2))
 
     return {

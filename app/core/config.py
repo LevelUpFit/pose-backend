@@ -1,11 +1,15 @@
 # app/core/config.py
 from pydantic_settings import BaseSettings
+from typing import Optional
 
 class Settings(BaseSettings):
     # MinIO 전용 필드
     MINIO_ACCESS_KEY: str
     MINIO_SECRET_KEY: str
     MINIO_URL: str  # .env의 MINIO_URL 이 여기에 바인딩
+    
+    # OpenAI API Key (LLM 피드백 생성용)
+    OPENAI_API_KEY: Optional[str] = None
 
     class Config:
         env_file = ".env"

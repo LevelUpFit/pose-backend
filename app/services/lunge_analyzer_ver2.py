@@ -413,7 +413,9 @@ def lunge_video_ver2(video_bytes: bytes, feedback_id: int) -> dict:
         if 'optimized_path' in locals() and os.path.exists(optimized_path) and optimized_path != final_output:
             os.remove(optimized_path)
     
-    feedback_text = make_feedback_basic(accuracy, round(score, 1))
+    # LLM 피드백 생성 (실패시 기존 방식으로 fallback)
+    from app.services.llm_feedback import generate_feedback_level1
+    feedback_text = generate_feedback_level1(accuracy, round(score, 1))
     print(round(score, 1), level, round(best_range_avg, 2))
 
     return {
