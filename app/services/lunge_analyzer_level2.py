@@ -469,12 +469,20 @@ def lunge_video_level2(video_bytes: bytes, feedback_id: int) -> dict:
         if 'optimized_path' in locals() and os.path.exists(optimized_path) and optimized_path != final_output:
             os.remove(optimized_path)
     video_url = f"https://{minio_client_module.MINIO_URL}/{bucket_name}/{object_name}"
-    feedback_text = make_feedback_intermediate(vertical_score, knee_accuracy, movement_range)
-    print(round(score, 1), level, round(best_range_avg, 2), round(vertical_score, 1), vertical_level, round(best_vertical, 2))
-
+    
     # 허리 수직 각도 점수는 vertical_score (0~100)
     # 두 점수의 평균을 최종 accuracy로 사용
     accuracy = round((knee_accuracy + vertical_score) / 2, 1)
+    
+    # LLM 피드백 생성 (실패시 기존 방식으로 fallback)
+    from app.services.llm_feedback import generate_feedback_level2
+    feedback_text = generate_feedback_level2(
+        accuracy=accuracy,
+        movement_range=round(score, 1),
+        knee_accuracy=knee_accuracy,
+        vertical_score=vertical_score
+    )
+    print(round(score, 1), level, round(best_range_avg, 2), round(vertical_score, 1), vertical_level, round(best_vertical, 2))
 
     return {
         "feedback_id": feedback_id,
