@@ -3,7 +3,7 @@
 
 FROM python:3.11-slim
 
-# 시스템 패키지 설치
+# 시스템 패키지 설치 (한글 폰트 포함)
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
@@ -18,6 +18,9 @@ RUN apt-get update && apt-get install -y \
     libavcodec-extra \
     wget \
     curl \
+    fonts-nanum \
+    fonts-nanum-coding \
+    && fc-cache -fv \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
