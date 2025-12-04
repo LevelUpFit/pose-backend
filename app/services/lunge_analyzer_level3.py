@@ -6,8 +6,52 @@ import math
 import numpy as np
 import tempfile
 import uuid
+from PIL import Image, ImageDraw, ImageFont
 
 from app.services.video_utils_ver2 import rotated_frame_generator
+
+
+def put_korean_text(frame, text, position, font_size=20, color=(255, 255, 255)):
+    """OpenCV 프레임에 한글 텍스트를 렌더링하는 함수"""
+    try:
+        # 프레임 복사하여 원본 보존
+        frame_copy = frame.copy()
+        
+        # OpenCV BGR -> PIL RGB
+        img_pil = Image.fromarray(cv2.cvtColor(frame_copy, cv2.COLOR_BGR2RGB))
+        draw = ImageDraw.Draw(img_pil)
+        
+        # 폰트 설정 (시스템 폰트 사용)
+        font = None
+        font_paths = [
+            "C:/Windows/Fonts/malgun.ttf",  # Windows 맑은 고딕
+            "malgun.ttf",
+            "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",  # Linux
+            "/System/Library/Fonts/AppleGothic.ttf",  # macOS
+        ]
+        
+        for font_path in font_paths:
+            try:
+                font = ImageFont.truetype(font_path, font_size)
+                break
+            except:
+                continue
+        
+        if font is None:
+            font = ImageFont.load_default()
+        
+        # BGR -> RGB 색상 변환
+        color_rgb = (color[2], color[1], color[0])
+        draw.text(position, text, font=font, fill=color_rgb)
+        
+        # PIL RGB -> OpenCV BGR
+        result = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
+        return result
+    except Exception as e:
+        print(f"put_korean_text error: {e}")
+        # 에러 시 cv2.putText로 폴백
+        cv2.putText(frame, text, position, cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+        return frame
 
 def annotate_lunge_video(input_path: str, output_path: str):
     # 1) 원본 비디오에서 FPS, 가로×세로 가져오기
@@ -52,7 +96,7 @@ def annotate_lunge_video(input_path: str, output_path: str):
     writer.release()
 
 
-def extract_front_knee_foot_xs_lunge_style(frame_gen, show_video=False, save_video_path=None):
+def extract_front_knee_foot_xs_lunge_style(frame_gen, show_video=False, save_video_path=None, fps=30):
     from app.utils.angle_utils import calculate_angle
     mp_pose = mp.solutions.pose
     knee_xs = []
@@ -62,14 +106,34 @@ def extract_front_knee_foot_xs_lunge_style(frame_gen, show_video=False, save_vid
     knee_y_list = []
     width, height = None, None
     video_writer = None
+    total_penalty = 0
+    frame_count = 0
+    
+    # 수축/이완 분석용 변수
+    diff_y_history = []  # 프레임별 엉덩이-무릎 높이 차이
+    current_phase = None  # 'contraction' or 'relaxation'
+    phase_start_frame = 0
+    smoothing_window = 7
 
     with mp_pose.Pose(static_image_mode=False) as pose:
         for frame in frame_gen:
             if width is None or height is None:
                 height, width = frame.shape[:2]
                 if save_video_path is not None:
-                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                    video_writer = cv2.VideoWriter(save_video_path, fourcc, 30, (width, height))
+                    # H.264 코덱 시도 (브라우저 호환성 최고)
+                    for codec in ['avc1', 'h264', 'H264', 'x264', 'X264']:
+                        fourcc = cv2.VideoWriter_fourcc(*codec)
+                        video_writer = cv2.VideoWriter(save_video_path, fourcc, fps, (width, height))
+                        if video_writer.isOpened():
+                            print(f"Using codec: {codec}")
+                            break
+                    
+                    if video_writer is None or not video_writer.isOpened():
+                        # 모든 H.264 코덱 실패시 mp4v로 폴백
+                        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                        video_writer = cv2.VideoWriter(save_video_path, fourcc, fps, (width, height))
+                        print("Fallback to mp4v codec")
+
             image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             result = pose.process(image_rgb)
             if result.pose_landmarks:
@@ -90,26 +154,54 @@ def extract_front_knee_foot_xs_lunge_style(frame_gen, show_video=False, save_vid
 
                 if look_direction == "right":
                     if right_foot_x > left_foot_x:
-                        knee_xs.append(right_knee_x)
-                        foot_xs.append(right_foot_x)
+                        knee_x = right_knee_x
+                        foot_x = right_foot_x
                         front_foot_x = right_foot_x
                         hip_idx, knee_idx, ankle_idx = 24, 26, 28
+                        # 수직선 정렬용 (반대쪽 = 왼쪽)
+                        opp_shoulder_idx, opp_hip_idx, opp_knee_idx = 11, 23, 25
                     else:
-                        knee_xs.append(left_knee_x)
-                        foot_xs.append(left_foot_x)
+                        knee_x = left_knee_x
+                        foot_x = left_foot_x
                         front_foot_x = left_foot_x
                         hip_idx, knee_idx, ankle_idx = 23, 25, 27
+                        # 수직선 정렬용 (반대쪽 = 오른쪽)
+                        opp_shoulder_idx, opp_hip_idx, opp_knee_idx = 12, 24, 26
                 else:
                     if left_foot_x < right_foot_x:
-                        knee_xs.append(left_knee_x)
-                        foot_xs.append(left_foot_x)
+                        knee_x = left_knee_x
+                        foot_x = left_foot_x
                         front_foot_x = left_foot_x
                         hip_idx, knee_idx, ankle_idx = 23, 25, 27
+                        # 수직선 정렬용 (반대쪽 = 오른쪽)
+                        opp_shoulder_idx, opp_hip_idx, opp_knee_idx = 12, 24, 26
                     else:
-                        knee_xs.append(right_knee_x)
-                        foot_xs.append(right_foot_x)
+                        knee_x = right_knee_x
+                        foot_x = right_foot_x
                         front_foot_x = right_foot_x
                         hip_idx, knee_idx, ankle_idx = 24, 26, 28
+                        # 수직선 정렬용 (반대쪽 = 왼쪽)
+                        opp_shoulder_idx, opp_hip_idx, opp_knee_idx = 11, 23, 25
+
+                knee_xs.append(knee_x)
+                foot_xs.append(foot_x)
+
+                # 수직선 정렬 계산 (어깨-엉덩이-반대쪽 무릎)
+                opp_shoulder = (landmarks[opp_shoulder_idx].x * width, landmarks[opp_shoulder_idx].y * height)
+                opp_hip = (landmarks[opp_hip_idx].x * width, landmarks[opp_hip_idx].y * height)
+                opp_knee_pt = (landmarks[opp_knee_idx].x * width, landmarks[opp_knee_idx].y * height)
+                vertical_angle = calc_three_point_angle(opp_shoulder, opp_hip, opp_knee_pt)
+                vertical_deviation = abs(180 - vertical_angle)
+
+                # 무릎이 발끝보다 앞으로 나갔는지 판별 및 패널티 계산
+                if look_direction == "right":
+                    over_distance = max(0, knee_x - foot_x)
+                else:
+                    over_distance = max(0, foot_x - knee_x)
+                
+                penalty = calc_penalty(over_distance, threshold=10, max_penalty=100) if over_distance > 0 else 0
+                total_penalty += penalty
+                frame_count += 1
 
                 # 앞다리 무릎 각도 계산 및 배열 저장
                 hip = (landmarks[hip_idx].x * width, landmarks[hip_idx].y * height)
@@ -119,6 +211,110 @@ def extract_front_knee_foot_xs_lunge_style(frame_gen, show_video=False, save_vid
                 knee_angles.append(knee_angle)
                 hip_y_list.append(int(hip[1]))
                 knee_y_list.append(int(knee[1]))
+
+                # 수축/이완 분석용 데이터 저장
+                current_diff = abs(int(knee[1]) - int(hip[1]))
+                diff_y_history.append(current_diff)
+                
+                # 수축/이완 상태 판별 (스무딩 적용)
+                if len(diff_y_history) >= smoothing_window:
+                    smoothed_recent = np.mean(diff_y_history[-smoothing_window:])
+                    smoothed_prev = np.mean(diff_y_history[-smoothing_window-1:-1]) if len(diff_y_history) > smoothing_window else smoothed_recent
+                    
+                    if smoothed_recent > smoothed_prev + 3:  # 차이가 커지면 수축 (내려가는 중)
+                        new_phase = 'contraction'
+                    elif smoothed_recent < smoothed_prev - 3:  # 차이가 작아지면 이완 (올라가는 중)
+                        new_phase = 'relaxation'
+                    else:
+                        new_phase = current_phase  # 유지
+                    
+                    if new_phase != current_phase and new_phase is not None:
+                        phase_start_frame = frame_count
+                        current_phase = new_phase
+
+                # 비디오에 시각적 피드백 추가
+                if save_video_path is not None:
+                    # 1️⃣ 발끝 기준 수직선 (무릎이 넘으면 빨간색, 안넘으면 초록색)
+                    line_color = (0, 0, 255) if over_distance > 0 else (0, 255, 0)
+                    cv2.line(frame, (int(front_foot_x), 0), (int(front_foot_x), height), line_color, 2)
+                    
+                    # 2️⃣ 수직선 정렬 시각화 (어깨-엉덩이-반대쪽 무릎)
+                    if vertical_deviation <= 10:
+                        vertical_color = (0, 255, 0)  # 초록색 (좋음)
+                    elif vertical_deviation <= 20:
+                        vertical_color = (0, 255, 255)  # 노란색 (중간)
+                    else:
+                        vertical_color = (0, 0, 255)  # 빨간색 (나쁨)
+                    
+                    # 어깨-엉덩이-반대쪽 무릎을 연결하는 선
+                    cv2.line(frame, (int(opp_shoulder[0]), int(opp_shoulder[1])), 
+                             (int(opp_hip[0]), int(opp_hip[1])), vertical_color, 3)
+                    cv2.line(frame, (int(opp_hip[0]), int(opp_hip[1])), 
+                             (int(opp_knee_pt[0]), int(opp_knee_pt[1])), vertical_color, 3)
+                    
+                    # 세 점에 원 표시
+                    cv2.circle(frame, (int(opp_shoulder[0]), int(opp_shoulder[1])), 8, vertical_color, -1)
+                    cv2.circle(frame, (int(opp_hip[0]), int(opp_hip[1])), 8, vertical_color, -1)
+                    cv2.circle(frame, (int(opp_knee_pt[0]), int(opp_knee_pt[1])), 8, vertical_color, -1)
+                    
+                    # 3️⃣ 가동범위 시각화 (엉덩이-무릎 높이 차이)
+                    hip_y_val = int(hip[1])
+                    knee_y_val = int(knee[1])
+                    range_diff = knee_y_val - hip_y_val
+                    
+                    if abs(range_diff) <= 25:
+                        range_color = (0, 255, 0)  # 초록색 (좋음)
+                    elif abs(range_diff) <= 50:
+                        range_color = (0, 255, 255)  # 노란색 (중간)
+                    else:
+                        range_color = (0, 0, 255)  # 빨간색 (나쁨)
+                    
+                    # 엉덩이 높이 가로선
+                    cv2.line(frame, (0, hip_y_val), (width, hip_y_val), (255, 165, 0), 2)
+                    # 무릎 높이 가로선
+                    cv2.line(frame, (0, knee_y_val), (width, knee_y_val), range_color, 2)
+                    # 엉덩이-무릎 높이 차이를 세로선으로 표시
+                    mid_x = int((hip[0] + knee[0]) / 2)
+                    cv2.line(frame, (mid_x, hip_y_val), (mid_x, knee_y_val), range_color, 3)
+                    
+                    # 랜드마크 그리기
+                    mp.solutions.drawing_utils.draw_landmarks(
+                        frame, result.pose_landmarks, mp_pose.POSE_CONNECTIONS
+                    )
+                    
+                    # ========== 통합 정보 박스 (한글 지원) ==========
+                    current_accuracy = max(0, 100 - (total_penalty / frame_count if frame_count > 0 else 0))
+                    
+                    # 4️⃣ 수축/이완 상태 계산
+                    phase_duration = 0
+                    phase_color = (255, 255, 255)
+                    phase_korean = "-"
+                    if current_phase is not None:
+                        phase_duration = (frame_count - phase_start_frame) / fps
+                        if 2.0 <= phase_duration <= 3.0:
+                            phase_color = (0, 255, 0)
+                        elif phase_duration < 2.0:
+                            phase_color = (0, 255, 255)
+                        else:
+                            phase_color = (0, 0, 255)
+                        phase_korean = "수축 ↓" if current_phase == 'contraction' else "이완 ↑"
+                    
+                    # 통합 정보 박스 배경
+                    box_height = 160 if current_phase else 120
+                    cv2.rectangle(frame, (10, 10), (280, 10 + box_height), (40, 40, 40), -1)
+                    cv2.rectangle(frame, (10, 10), (280, 10 + box_height), (100, 100, 100), 2)
+                    
+                    # 한글 텍스트 렌더링
+                    # 무릎 정확도 색상
+                    acc_color = (0, 255, 0) if current_accuracy >= 90 else ((0, 255, 255) if current_accuracy >= 70 else (0, 0, 255))
+                    
+                    frame = put_korean_text(frame, f"정확도: {current_accuracy:.1f}%", (20, 15), font_size=22, color=acc_color)
+                    frame = put_korean_text(frame, f"수직 정렬: {vertical_deviation:.1f}°", (20, 45), font_size=20, color=vertical_color)
+                    frame = put_korean_text(frame, f"가동범위: {abs(range_diff)}px", (20, 75), font_size=20, color=range_color)
+                    
+                    if current_phase is not None:
+                        frame = put_korean_text(frame, f"동작: {phase_korean}", (20, 105), font_size=20, color=phase_color)
+                        frame = put_korean_text(frame, f"시간: {phase_duration:.1f}초", (20, 135), font_size=20, color=phase_color)
 
                 if show_video:
                     cv2.line(frame, (int(front_foot_x), 0), (int(front_foot_x), height), (0, 0, 255), 2)
@@ -315,8 +511,22 @@ def lunge_video_level3(video_bytes: bytes, feedback_id: int) -> dict:
         input_tmp.write(video_bytes)
     input_path = input_tmp.name
 
+    # FPS 추출
+    cap = cv2.VideoCapture(input_path)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    cap.release()
+
+    # 1단계: 분석값 추출 (비디오 생성 없이)
     frame_gen = rotated_frame_generator(input_path)
     knee_xs, foot_xs, knee_angles, hip_y_list, knee_y_list = extract_front_knee_foot_xs_lunge_style(frame_gen, show_video=False)
+
+    # 2단계: 시각적 피드백이 포함된 비디오 생성
+    output_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+    output_path = output_tmp.name
+    output_tmp.close()
+    
+    frame_gen_visual = rotated_frame_generator(input_path)
+    extract_front_knee_foot_xs_lunge_style(frame_gen_visual, show_video=False, save_video_path=output_path, fps=fps)
 
     # --- 수직선 정렬 분석 ---
     vertical_angles = analyze_vertical_alignment(rotated_frame_generator(input_path))
@@ -391,19 +601,41 @@ def lunge_video_level3(video_bytes: bytes, feedback_id: int) -> dict:
         "relaxationPercent": relaxation_percent
     }
 
-     # (3) 어노테이션된 영상 만들기
-    annotated_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
-    annotated_path = annotated_tmp.name
-    annotated_tmp.close()
-    annotate_lunge_video(input_path, annotated_path)
+    # 3단계: FFmpeg로 브라우저 스트리밍 최적화 (faststart)
+    import subprocess
+    optimized_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+    optimized_path = optimized_tmp.name
+    optimized_tmp.close()
+    
+    try:
+        # FFmpeg로 H.264 재인코딩 + faststart (moov atom을 파일 앞으로)
+        subprocess.run([
+            'ffmpeg', '-i', output_path,
+            '-c:v', 'libx264',  # H.264 코덱
+            '-preset', 'fast',  # 빠른 인코딩
+            '-movflags', '+faststart',  # 스트리밍 최적화
+            '-y',  # 덮어쓰기
+            optimized_path
+        ], check=True, capture_output=True)
+        
+        # 최적화된 파일로 교체
+        final_output = optimized_path
+        print(f"Optimized video with FFmpeg: {final_output}")
+    except subprocess.CalledProcessError as e:
+        print(f"FFmpeg optimization failed: {e.stderr.decode()}")
+        # FFmpeg 실패시 원본 사용
+        final_output = output_path
+    except FileNotFoundError:
+        print("FFmpeg not found, using original video")
+        final_output = output_path
 
-    # (4) MinIO에 업로드 (원본 input_path 대신 annotated_path)
+    # (4) MinIO에 업로드
     bucket_name = "levelupfit-videos"
     object_name = f"{uuid.uuid4()}.mp4"
     try:
         import os
-        file_size = os.path.getsize(annotated_path)
-        with open(annotated_path, 'rb') as file_data:
+        file_size = os.path.getsize(final_output)
+        with open(final_output, 'rb') as file_data:
             minio_client.put_object(
                 bucket_name=bucket_name,
                 object_name=object_name,
@@ -416,8 +648,10 @@ def lunge_video_level3(video_bytes: bytes, feedback_id: int) -> dict:
         import os
         if os.path.exists(input_path):
             os.remove(input_path)
-        if os.path.exists(annotated_path):
-            os.remove(annotated_path)
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        if 'optimized_path' in locals() and os.path.exists(optimized_path) and optimized_path != final_output:
+            os.remove(optimized_path)
     video_url = f"https://{minio_client_module.MINIO_URL}/{bucket_name}/{object_name}"
     feedback_text = make_feedback_advanced(vertical_score, movementSpeed, knee_accuracy, round(score, 1))
     accuracy = (knee_accuracy + vertical_score) / 2

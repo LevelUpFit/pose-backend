@@ -6,8 +6,59 @@ import math
 import numpy as np
 import tempfile
 import uuid
+from PIL import Image, ImageDraw, ImageFont
 
 from app.services.video_utils_ver2 import rotated_frame_generator
+
+def put_korean_text(frame, text, position, font_size=24, color=(255, 255, 255)):
+    """OpenCV 프레임에 한글 텍스트를 렌더링합니다."""
+    try:
+        # 프레임 복사하여 원본 보존
+        frame_copy = frame.copy()
+        
+        # BGR -> RGB 변환
+        img_pil = Image.fromarray(cv2.cvtColor(frame_copy, cv2.COLOR_BGR2RGB))
+        draw = ImageDraw.Draw(img_pil)
+        
+        # 폰트 로드 시도
+        font = None
+        font_paths = [
+            "C:/Windows/Fonts/malgun.ttf",  # Windows 맑은 고딕
+            "malgun.ttf",
+            "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",  # Linux
+            "/System/Library/Fonts/AppleGothic.ttf",  # macOS
+        ]
+        
+        for font_path in font_paths:
+            try:
+                font = ImageFont.truetype(font_path, font_size)
+                break
+            except:
+                continue
+        
+        if font is None:
+            font = ImageFont.load_default()
+        
+        # BGR -> RGB 색상 변환 (PIL은 RGB 사용)
+        rgb_color = (color[2], color[1], color[0])
+        draw.text(position, text, font=font, fill=rgb_color)
+        
+        # RGB -> BGR 변환하여 반환
+        result = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
+        return result
+    except Exception as e:
+        print(f"put_korean_text error: {e}")
+        # 에러 시 cv2.putText로 폴백
+        cv2.putText(frame, text, position, cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+        return frame
+
+# 프레임별 누적 패널티와 카운트 (전역 상태)
+_frame_state = {'total_penalty': 0, 'frame_count': 0}
+
+def reset_frame_state():
+    """프레임 상태 초기화"""
+    _frame_state['total_penalty'] = 0
+    _frame_state['frame_count'] = 0
 
 def process_lunge_frame(frame, pose, width, height, calculate_angle=None, tolerance=25):
     """
@@ -15,9 +66,10 @@ def process_lunge_frame(frame, pose, width, height, calculate_angle=None, tolera
     2. 앞다리 판별 및 좌표/각도 계산
     3. 기준 발끝에 y축 선(초록/빨강) 그리기
     4. 랜드마크 그리기
-    5. 분석값 반환
+    5. 통합 정보 박스 표시 (한글 지원)
+    6. 분석값 반환
     """
-    mp_pose = mp.solutions.pose  # ← 이 줄 추가!
+    mp_pose = mp.solutions.pose
     result = pose.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
     if not result.pose_landmarks:
         return frame, None, None, None, None, None
@@ -57,6 +109,9 @@ def process_lunge_frame(frame, pose, width, height, calculate_angle=None, tolera
             hip_idx, knee_idx, ankle_idx = 24, 26, 28
 
     # 무릎 각도 계산 및 y좌표
+    hip = None
+    knee = None
+    ankle = None
     if calculate_angle:
         hip = (landmarks[hip_idx].x * width, landmarks[hip_idx].y * height)
         knee = (landmarks[knee_idx].x * width, landmarks[knee_idx].y * height)
@@ -69,23 +124,60 @@ def process_lunge_frame(frame, pose, width, height, calculate_angle=None, tolera
         hip_y = None
         knee_y = None
 
-    # 기준 발끝에 y축 선 (무릎이 발끝 넘으면 빨간색)
-    color = (0, 255, 0)
-    if knee_x > foot_x:
-        color = (0, 0, 255)
-    cv2.line(frame, (int(foot_x), 0), (int(foot_x), height), color, 2)
+    # 무릎이 발끝보다 앞으로 나갔는지 판별
+    if look_direction == "right":
+        over_distance = max(0, knee_x - foot_x)
+    else:
+        over_distance = max(0, foot_x - knee_x)
+    
+    # 패널티 계산 및 누적
+    penalty = calc_penalty(over_distance, threshold=10, max_penalty=100) if over_distance > 0 else 0
+    _frame_state['total_penalty'] += penalty
+    _frame_state['frame_count'] += 1
 
-    # 랜드마크 그리기 (이게 선을 덮어버림)
+    # 1️⃣ 기준 발끝에 y축 선 (무릎이 발끝 넘으면 빨간색)
+    line_color = (0, 0, 255) if over_distance > 0 else (0, 255, 0)
+    cv2.line(frame, (int(foot_x), 0), (int(foot_x), height), line_color, 2)
+
+    # 2️⃣ 가동범위 시각화 (엉덩이-무릎 높이 차이)
+    range_color = (255, 255, 255)
+    range_diff = 0
+    if knee_y is not None and hip_y is not None:
+        range_diff = knee_y - hip_y
+        
+        if abs(range_diff) <= 25:
+            range_color = (0, 255, 0)  # 초록색 (좋음)
+        elif abs(range_diff) <= 50:
+            range_color = (0, 255, 255)  # 노란색 (중간)
+        else:
+            range_color = (0, 0, 255)  # 빨간색 (나쁨)
+        
+        # 엉덩이 높이 가로선
+        cv2.line(frame, (0, hip_y), (width, hip_y), (255, 165, 0), 2)
+        # 무릎 높이 가로선
+        cv2.line(frame, (0, knee_y), (width, knee_y), range_color, 2)
+        # 엉덩이-무릎 높이 차이를 세로선으로 표시
+        if hip is not None and knee is not None:
+            mid_x = int((hip[0] + knee[0]) / 2)
+            cv2.line(frame, (mid_x, hip_y), (mid_x, knee_y), range_color, 3)
+
+    # 랜드마크 그리기
     mp.solutions.drawing_utils.draw_landmarks(
         frame, result.pose_landmarks, mp_pose.POSE_CONNECTIONS
     )
 
-    # 무릎 위치에 x축(가로) 선을 draw_landmarks 이후에 그리기!
-    if knee_y is not None and hip_y is not None:
-        range_color = (0, 0, 255)
-        if abs(knee_y - hip_y) <= tolerance:
-            range_color = (0, 255, 0)
-        cv2.line(frame, (0, int(knee_y)), (width, int(knee_y)), range_color, 2)
+    # ========== 통합 정보 박스 (한글 지원) ==========
+    current_accuracy = max(0, 100 - (_frame_state['total_penalty'] / _frame_state['frame_count'] if _frame_state['frame_count'] > 0 else 0))
+    
+    # 통합 정보 박스 배경
+    cv2.rectangle(frame, (10, 10), (280, 100), (40, 40, 40), -1)
+    cv2.rectangle(frame, (10, 10), (280, 100), (100, 100, 100), 2)
+    
+    # 한글 텍스트 렌더링
+    acc_color = (0, 255, 0) if current_accuracy >= 90 else ((0, 255, 255) if current_accuracy >= 70 else (0, 0, 255))
+    
+    frame = put_korean_text(frame, f"정확도: {current_accuracy:.1f}%", (20, 15), font_size=22, color=acc_color)
+    frame = put_korean_text(frame, f"가동범위: {abs(range_diff)}px", (20, 50), font_size=20, color=range_color)
 
     return frame, knee_x, foot_x, knee_angle, hip_y, knee_y
 
@@ -97,19 +189,24 @@ def save_landmark_video(input_path, output_path):
     import cv2
     from app.utils.angle_utils import calculate_angle
 
+    # 프레임 상태 초기화
+    reset_frame_state()
+
     cap = cv2.VideoCapture(input_path)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30
     
     # H.264 코덱 시도 (브라우저 호환성 최고)
+    out = None
     for codec in ['avc1', 'h264', 'H264', 'x264', 'X264']:
         fourcc = cv2.VideoWriter_fourcc(*codec)
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
         if out.isOpened():
             print(f"Using codec: {codec}")
             break
-    else:
+    
+    if out is None or not out.isOpened():
         # 모든 H.264 코덱 실패시 mp4v로 폴백
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
@@ -222,6 +319,34 @@ def lunge_video_ver2(video_bytes: bytes, feedback_id: int) -> dict:
     # 3. 랜드마크 영상 생성
     save_landmark_video(input_path, output_path)
 
+    # 3-1. FFmpeg로 브라우저 스트리밍 최적화 (faststart)
+    import subprocess
+    optimized_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+    optimized_path = optimized_tmp.name
+    optimized_tmp.close()
+    
+    try:
+        # FFmpeg로 H.264 재인코딩 + faststart (moov atom을 파일 앞으로)
+        subprocess.run([
+            'ffmpeg', '-i', output_path,
+            '-c:v', 'libx264',  # H.264 코덱
+            '-preset', 'fast',  # 빠른 인코딩
+            '-movflags', '+faststart',  # 스트리밍 최적화
+            '-y',  # 덮어쓰기
+            optimized_path
+        ], check=True, capture_output=True)
+        
+        # 최적화된 파일로 교체
+        final_output = optimized_path
+        print(f"Optimized video with FFmpeg: {final_output}")
+    except subprocess.CalledProcessError as e:
+        print(f"FFmpeg optimization failed: {e.stderr.decode()}")
+        # FFmpeg 실패시 원본 사용
+        final_output = output_path
+    except FileNotFoundError:
+        print("FFmpeg not found, using original video")
+        final_output = output_path
+
     # 4. 분석 (기존대로 input_path 사용)
     frame_gen = rotated_frame_generator(input_path)
     knee_xs, foot_xs, knee_angles, hip_y_list, knee_y_list = extract_front_knee_foot_xs_lunge_style(frame_gen, show_video=False)
@@ -268,8 +393,8 @@ def lunge_video_ver2(video_bytes: bytes, feedback_id: int) -> dict:
     
     try:
         import os
-        file_size = os.path.getsize(output_path)
-        with open(output_path, 'rb') as file_data:
+        file_size = os.path.getsize(final_output)
+        with open(final_output, 'rb') as file_data:
             minio_client.put_object(
                 bucket_name=bucket_name,
                 object_name=object_name,
@@ -285,6 +410,8 @@ def lunge_video_ver2(video_bytes: bytes, feedback_id: int) -> dict:
             os.remove(input_path)
         if os.path.exists(output_path):
             os.remove(output_path)
+        if 'optimized_path' in locals() and os.path.exists(optimized_path) and optimized_path != final_output:
+            os.remove(optimized_path)
     
     feedback_text = make_feedback_basic(accuracy, round(score, 1))
     print(round(score, 1), level, round(best_range_avg, 2))
