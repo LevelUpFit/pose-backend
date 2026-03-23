@@ -1,88 +1,14 @@
 import matplotlib.pyplot as plt
 import cv2
 import mediapipe as mp
-import sys
-import math
 import numpy as np
-import tempfile
-import uuid
-from PIL import Image, ImageDraw, ImageFont
 
+from app.core.config import settings
 from app.services.video_utils_ver2 import rotated_frame_generator
+from app.utils.angle_utils import calc_penalty, calculate_angle
+from app.utils.draw_utils import put_korean_text
 
-# 폰트 캐싱 (매 프레임마다 로드하지 않도록)
-_font_cache = {}
-
-def get_korean_font(font_size=24):
-    """한글 폰트를 캐싱하여 반환합니다."""
-    if font_size in _font_cache:
-        return _font_cache[font_size]
-    
-    font = None
-    # Windows, Linux, macOS 폰트 경로들
-    font_paths = [
-        # Windows
-        "C:/Windows/Fonts/malgun.ttf",      # 맑은 고딕
-        "C:/Windows/Fonts/malgunbd.ttf",    # 맑은 고딕 Bold
-        "C:/Windows/Fonts/gulim.ttc",       # 굴림
-        "C:/Windows/Fonts/batang.ttc",      # 바탕
-        "C:/Windows/Fonts/ngulim.ttf",      # 새굴림
-        # Linux
-        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
-        "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
-        "/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        # macOS
-        "/System/Library/Fonts/AppleGothic.ttf",
-        "/System/Library/Fonts/AppleSDGothicNeo.ttc",
-        "/Library/Fonts/NanumGothic.ttf",
-    ]
-    
-    for font_path in font_paths:
-        try:
-            font = ImageFont.truetype(font_path, font_size)
-            print(f"[Font] Loaded: {font_path}")
-            break
-        except Exception:
-            continue
-    
-    if font is None:
-        print("[Font] Warning: No Korean font found, using default")
-        font = ImageFont.load_default()
-    
-    _font_cache[font_size] = font
-    return font
-
-def put_korean_text(frame, text, position, font_size=24, color=(255, 255, 255)):
-    """OpenCV 프레임에 한글 텍스트를 렌더링합니다."""
-    try:
-        # BGR -> RGB 변환
-        img_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        draw = ImageDraw.Draw(img_pil)
-        
-        # 캐싱된 폰트 사용
-        font = get_korean_font(font_size)
-        
-        # BGR -> RGB 색상 변환 (PIL은 RGB 사용)
-        rgb_color = (color[2], color[1], color[0])
-        draw.text(position, text, font=font, fill=rgb_color)
-        
-        # RGB -> BGR 변환하여 반환
-        return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
-    except Exception as e:
-        print(f"[put_korean_text] Error: {e}")
-        # 에러 시 원본 프레임 반환
-        return frame
-
-# 프레임별 누적 패널티와 카운트 (전역 상태)
-_frame_state = {'total_penalty': 0, 'frame_count': 0}
-
-def reset_frame_state():
-    """프레임 상태 초기화"""
-    _frame_state['total_penalty'] = 0
-    _frame_state['frame_count'] = 0
-
-def process_lunge_frame(frame, pose, width, height, calculate_angle=None, tolerance=25):
+def process_lunge_frame(frame, pose, width, height, frame_state, calculate_angle=None, tolerance=None):
     """
     1. Mediapipe로 랜드마크 추출
     2. 앞다리 판별 및 좌표/각도 계산
@@ -92,6 +18,7 @@ def process_lunge_frame(frame, pose, width, height, calculate_angle=None, tolera
     6. 분석값 반환
     """
     mp_pose = mp.solutions.pose
+    tolerance = tolerance or settings.LUNGE_RANGE_TOLERANCE_PX
     result = pose.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
     if not result.pose_landmarks:
         return frame, None, None, None, None, None
@@ -154,8 +81,8 @@ def process_lunge_frame(frame, pose, width, height, calculate_angle=None, tolera
     
     # 패널티 계산 및 누적
     penalty = calc_penalty(over_distance, threshold=10, max_penalty=100) if over_distance > 0 else 0
-    _frame_state['total_penalty'] += penalty
-    _frame_state['frame_count'] += 1
+    frame_state['total_penalty'] += penalty
+    frame_state['frame_count'] += 1
 
     # 1️⃣ 기준 발끝에 y축 선 (무릎이 발끝 넘으면 빨간색)
     line_color = (0, 0, 255) if over_distance > 0 else (0, 255, 0)
@@ -167,9 +94,9 @@ def process_lunge_frame(frame, pose, width, height, calculate_angle=None, tolera
     if knee_y is not None and hip_y is not None:
         range_diff = knee_y - hip_y
         
-        if abs(range_diff) <= 25:
+        if abs(range_diff) <= tolerance:
             range_color = (0, 255, 0)  # 초록색 (좋음)
-        elif abs(range_diff) <= 50:
+        elif abs(range_diff) <= tolerance * 2:
             range_color = (0, 255, 255)  # 노란색 (중간)
         else:
             range_color = (0, 0, 255)  # 빨간색 (나쁨)
@@ -189,7 +116,7 @@ def process_lunge_frame(frame, pose, width, height, calculate_angle=None, tolera
     )
 
     # ========== 통합 정보 박스 (한글 지원) ==========
-    current_accuracy = max(0, 100 - (_frame_state['total_penalty'] / _frame_state['frame_count'] if _frame_state['frame_count'] > 0 else 0))
+    current_accuracy = max(0, 100 - (frame_state['total_penalty'] / frame_state['frame_count'] if frame_state['frame_count'] > 0 else 0))
     
     # 통합 정보 박스 배경
     cv2.rectangle(frame, (10, 10), (280, 100), (40, 40, 40), -1)
@@ -209,10 +136,8 @@ def save_landmark_video(input_path, output_path):
     """
     import mediapipe as mp
     import cv2
-    from app.utils.angle_utils import calculate_angle
 
-    # 프레임 상태 초기화
-    reset_frame_state()
+    frame_state = {'total_penalty': 0, 'frame_count': 0}
 
     cap = cv2.VideoCapture(input_path)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -239,23 +164,30 @@ def save_landmark_video(input_path, output_path):
         raise Exception("VideoWriter 초기화 실패")
 
     mp_pose = mp.solutions.pose
-    with mp_pose.Pose(static_image_mode=False) as pose:
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            frame, *_ = process_lunge_frame(
-                frame, pose, width, height, calculate_angle=calculate_angle
-            )
-            out.write(frame)
-    cap.release()
-    out.release()
+    try:
+        with mp_pose.Pose(static_image_mode=False) as pose:
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                frame, *_ = process_lunge_frame(
+                    frame,
+                    pose,
+                    width,
+                    height,
+                    frame_state,
+                    calculate_angle=calculate_angle,
+                    tolerance=settings.LUNGE_RANGE_TOLERANCE_PX,
+                )
+                out.write(frame)
+    finally:
+        cap.release()
+        out.release()
 
 def extract_front_knee_foot_xs_lunge_style(frame_gen, show_video=False):
     """
     분석값만 추출 (영상 저장 X)
     """
-    from app.utils.angle_utils import calculate_angle
     mp_pose = mp.solutions.pose
     knee_xs = []
     foot_xs = []
@@ -264,12 +196,20 @@ def extract_front_knee_foot_xs_lunge_style(frame_gen, show_video=False):
     knee_y_list = []
     width, height = None, None
 
+    frame_state = {'total_penalty': 0, 'frame_count': 0}
+
     with mp_pose.Pose(static_image_mode=False) as pose:
         for frame in frame_gen:
             if width is None or height is None:
                 height, width = frame.shape[:2]
             _, knee_x, foot_x, knee_angle, hip_y, knee_y = process_lunge_frame(
-                frame, pose, width, height, calculate_angle=calculate_angle
+                frame,
+                pose,
+                width,
+                height,
+                frame_state,
+                calculate_angle=calculate_angle,
+                tolerance=settings.LUNGE_RANGE_TOLERANCE_PX,
             )
             if knee_x is not None:
                 knee_xs.append(knee_x)
@@ -284,12 +224,6 @@ def extract_front_knee_foot_xs_lunge_style(frame_gen, show_video=False):
     if show_video:
         cv2.destroyAllWindows()
     return knee_xs, foot_xs, knee_angles, hip_y_list, knee_y_list
-
-def calc_penalty(over_distance, threshold=10, max_penalty=100):
-    x = max(0, over_distance)
-    exp_input = min((x / threshold) ** 2, 10)
-    penalty = math.exp(exp_input) - 1
-    return min(penalty, max_penalty)
 
 def plot_knee_foot_distance(knee_xs, foot_xs):
     distances = [knee - foot for knee, foot in zip(knee_xs, foot_xs)]
@@ -397,7 +331,7 @@ def lunge_video_ver2(video_bytes: bytes, feedback_id: int) -> dict:
     k = max(1, int(n * 0.1))
     best_range_avg = np.mean(sorted_diffs[:k]) if k > 0 else 0
 
-    tolerance = 25  # 픽셀
+    tolerance = settings.LUNGE_RANGE_TOLERANCE_PX
     if abs(best_range_avg) <= tolerance:
         score = 100
         level = "좋음"
@@ -410,7 +344,7 @@ def lunge_video_ver2(video_bytes: bytes, feedback_id: int) -> dict:
     score = min(score, 100)
 
     # 5. MinIO에 랜드마크 영상 업로드
-    bucket_name = "levelupfit-videos"
+    bucket_name = settings.MINIO_BUCKET_NAME
     object_name = f"{uuid.uuid4()}.mp4"
     
     try:

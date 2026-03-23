@@ -1,78 +1,12 @@
 import matplotlib.pyplot as plt
 import cv2
 import mediapipe as mp
-import sys
-import math
 import numpy as np
-import tempfile
-import uuid
-from PIL import Image, ImageDraw, ImageFont
 
+from app.core.config import settings
 from app.services.video_utils_ver2 import rotated_frame_generator
-
-# 폰트 캐싱 (매 프레임마다 로드하지 않도록)
-_font_cache = {}
-
-def get_korean_font(font_size=20):
-    """한글 폰트를 캐싱하여 반환합니다."""
-    if font_size in _font_cache:
-        return _font_cache[font_size]
-    
-    font = None
-    # Windows, Linux, macOS 폰트 경로들
-    font_paths = [
-        # Windows
-        "C:/Windows/Fonts/malgun.ttf",      # 맑은 고딕
-        "C:/Windows/Fonts/malgunbd.ttf",    # 맑은 고딕 Bold
-        "C:/Windows/Fonts/gulim.ttc",       # 굴림
-        "C:/Windows/Fonts/batang.ttc",      # 바탕
-        "C:/Windows/Fonts/ngulim.ttf",      # 새굴림
-        # Linux
-        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
-        "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
-        "/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        # macOS
-        "/System/Library/Fonts/AppleGothic.ttf",
-        "/System/Library/Fonts/AppleSDGothicNeo.ttc",
-        "/Library/Fonts/NanumGothic.ttf",
-    ]
-    
-    for font_path in font_paths:
-        try:
-            font = ImageFont.truetype(font_path, font_size)
-            print(f"[Font] Loaded: {font_path}")
-            break
-        except Exception:
-            continue
-    
-    if font is None:
-        print("[Font] Warning: No Korean font found, using default")
-        font = ImageFont.load_default()
-    
-    _font_cache[font_size] = font
-    return font
-
-def put_korean_text(frame, text, position, font_size=20, color=(255, 255, 255)):
-    """OpenCV 프레임에 한글 텍스트를 렌더링하는 함수"""
-    try:
-        # BGR -> RGB 변환
-        img_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        draw = ImageDraw.Draw(img_pil)
-        
-        # 캐싱된 폰트 사용
-        font = get_korean_font(font_size)
-        
-        # BGR -> RGB 색상 변환
-        color_rgb = (color[2], color[1], color[0])
-        draw.text(position, text, font=font, fill=color_rgb)
-        
-        # RGB -> BGR 변환하여 반환
-        return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
-    except Exception as e:
-        print(f"[put_korean_text] Error: {e}")
-        # 에러 시 원본 프레임 반환
-        return frame
+from app.utils.angle_utils import calc_penalty, calc_three_point_angle, calculate_angle
+from app.utils.draw_utils import put_korean_text
 
 def annotate_lunge_video(input_path: str, output_path: str):
     # 1) 원본 비디오에서 FPS, 가로×세로 가져오기
@@ -102,23 +36,23 @@ def annotate_lunge_video(input_path: str, output_path: str):
         raise RuntimeError(f"Cannot open VideoWriter for {output_path}")
 
     # 3) Mediapipe 포즈 모델로 프레임마다 랜드마크 그리기
-    with mp.solutions.pose.Pose(static_image_mode=False) as pose:
-        for frame in rotated_frame_generator(input_path):
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            res = pose.process(rgb)
-            if res.pose_landmarks:
-                mp.solutions.drawing_utils.draw_landmarks(
-                    frame,
-                    res.pose_landmarks,
-                    mp.solutions.pose.POSE_CONNECTIONS
-                )
-            writer.write(frame)
-
-    writer.release()
+    try:
+        with mp.solutions.pose.Pose(static_image_mode=False) as pose:
+            for frame in rotated_frame_generator(input_path):
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                res = pose.process(rgb)
+                if res.pose_landmarks:
+                    mp.solutions.drawing_utils.draw_landmarks(
+                        frame,
+                        res.pose_landmarks,
+                        mp.solutions.pose.POSE_CONNECTIONS
+                    )
+                writer.write(frame)
+    finally:
+        writer.release()
 
 
 def extract_front_knee_foot_xs_lunge_style(frame_gen, show_video=False, save_video_path=None, fps=30):
-    from app.utils.angle_utils import calculate_angle
     mp_pose = mp.solutions.pose
     knee_xs = []
     foot_xs = []
@@ -357,12 +291,6 @@ def extract_front_knee_foot_xs_lunge_style(frame_gen, show_video=False, save_vid
         video_writer.release()
     return knee_xs, foot_xs, knee_angles, hip_y_list, knee_y_list
 
-def calc_penalty(over_distance, threshold=10, max_penalty=100):
-    x = max(0, over_distance)
-    exp_input = min((x / threshold) ** 2, 10)
-    penalty = math.exp(exp_input) - 1
-    return min(penalty, max_penalty)
-
 def plot_knee_foot_distance(knee_xs, foot_xs):
     distances = [knee - foot for knee, foot in zip(knee_xs, foot_xs)]
     penalties = []
@@ -389,14 +317,6 @@ def plot_knee_foot_distance(knee_xs, foot_xs):
     plt.legend()
     plt.tight_layout()
     plt.show()
-
-def calc_three_point_angle(a, b, c):
-    # 각 b를 기준으로 a-b-c의 각도를 구함
-    ba = np.array([a[0] - b[0], a[1] - b[1]])
-    bc = np.array([c[0] - b[0], c[1] - b[1]])
-    cosine_angle = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc) + 1e-8)
-    angle = np.arccos(np.clip(cosine_angle, -1.0, 1.0))
-    return np.degrees(angle)
 
 def analyze_vertical_alignment(frame_gen):
     mp_pose = mp.solutions.pose
@@ -556,7 +476,7 @@ def lunge_video_level3(video_bytes: bytes, feedback_id: int) -> dict:
     k = max(1, int(n * 0.1))
     best_vertical = np.mean(sorted(vertical_deviation)[:k]) if k > 0 else 180
 
-    vertical_tolerance = 10  # 도
+    vertical_tolerance = settings.LUNGE_VERTICAL_TOLERANCE_DEG
     if best_vertical <= vertical_tolerance:
         vertical_score = 100
         vertical_level = "좋음"
@@ -592,7 +512,7 @@ def lunge_video_level3(video_bytes: bytes, feedback_id: int) -> dict:
     k = max(1, int(n * 0.1))
     best_range_avg = np.mean(sorted_diffs[:k]) if k > 0 else 0
 
-    tolerance = 25  # 픽셀
+    tolerance = settings.LUNGE_RANGE_TOLERANCE_PX
     if abs(best_range_avg) <= tolerance:
         score = 100
         level = "좋음"
@@ -651,7 +571,7 @@ def lunge_video_level3(video_bytes: bytes, feedback_id: int) -> dict:
         final_output = output_path
 
     # (4) MinIO에 업로드
-    bucket_name = "levelupfit-videos"
+    bucket_name = settings.MINIO_BUCKET_NAME
     object_name = f"{uuid.uuid4()}.mp4"
     try:
         import os
