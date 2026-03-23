@@ -1,39 +1,12 @@
-from fastapi import APIRouter, UploadFile, File, Form
-from fastapi.responses import FileResponse, JSONResponse
-from app.services.mediapipe_service import analyze_and_render_video
-from app.services.lunge_analyzer import lunge_video
-from app.services.lunge_analyzer import analyze_lunge
-from app.services.squat_analyzer import squat_video
-from app.services.squat_analyzer import analyze_squat
-from app.services.lunge_analyzer_ver2 import lunge_video_ver2
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
+
 from app.services.lunge_analyzer_level2 import lunge_video_level2
 from app.services.lunge_analyzer_level3 import lunge_video_level3
-from app.utils.video_utils import get_video_info
-from fastapi import HTTPException
-from pydantic import BaseModel
-import tempfile
-
-class AnalyzeRequest(BaseModel):
-    exercise_id: int
-    image_url: str
+from app.services.lunge_analyzer_ver2 import lunge_video_ver2
+from app.services.squat_analyzer import squat_video
 
 router = APIRouter()
-
-@router.post("/analyze/lunge")
-async def analyze_uploaded_video(
-    file: UploadFile = File(...),
-    feedback_id: int = Form(...)
-):
-    video_bytes = await file.read()
-    result = lunge_video(video_bytes, feedback_id)
-    return JSONResponse(result)
-
-@router.post("/analyze/squat")
-async def analyze_uploaded_squat_video(file: UploadFile = File(...),feedback_id: int = Form(...)):
-    video_bytes = await file.read()
-    output_path = squat_video(video_bytes)
-    return FileResponse(path=output_path, media_type="video/mp4", filename="analyzed_output_squat.mp4")
-
 
 exercise_analyzers = {
     19: lunge_video_level2,
