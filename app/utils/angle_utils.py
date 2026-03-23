@@ -76,3 +76,19 @@ def evaluate_range_accuracy_from_angle_list(angle_list, reference_min, reference
     accuracy = min(coverage_ratio * 100, 100)
 
     return round(accuracy, 2), round(lower_avg, 2), round(upper_avg, 2)
+
+
+def calc_penalty(over_distance, threshold=10, max_penalty=100):
+    x = max(0, over_distance)
+    exp_input = min((x / threshold) ** 2, 10)
+    penalty = math.exp(exp_input) - 1
+    return min(penalty, max_penalty)
+
+
+def calc_three_point_angle(a, b, c):
+    # Angle at point b formed by points a-b-c.
+    ba = np.array([a[0] - b[0], a[1] - b[1]])
+    bc = np.array([c[0] - b[0], c[1] - b[1]])
+    cosine_angle = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc) + 1e-8)
+    angle = np.arccos(np.clip(cosine_angle, -1.0, 1.0))
+    return np.degrees(angle)
