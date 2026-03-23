@@ -10,3 +10,8 @@ env/
 ENV/
 .venv/
 *.egg-info/
+
+# Docs & Logs (문서 및 로그 파일 무시)
+docs/
+*.md
+!README.md
